@@ -742,20 +742,20 @@ async function getPackageData(pkgName) {
     let defaultVals = '35_49_50_0'; // fallback
     
     // Тексты (Звезды_Рубли_Тексты_Фото)
-    if(pkgName === 't50') defaultVals = '35_50_50_0';
-    if(pkgName === 't200') defaultVals = '125_150_200_0';
-    if(pkgName === 't500') defaultVals = '250_300_500_0';
+    if(pkgName === 't50') defaultVals = '90_225_50_0';
+    if(pkgName === 't200') defaultVals = '220_550_150_0';
+    if(pkgName === 't500') defaultVals = '500_1250_400_0';
     
     // Фото (Звезды_Рубли_Тексты_Фото)
-    if(pkgName === 'i5') defaultVals = '35_50_0_5';
-    if(pkgName === 'i15') defaultVals = '125_150_0_15';
-    if(pkgName === 'i50') defaultVals = '300_390_0_50';
+    if(pkgName === 'i5') defaultVals = '30_75_0_5';
+    if(pkgName === 'i15') defaultVals = '70_175_0_15';
+    if(pkgName === 'i50') defaultVals = '150_375_0_40';
     
     // Комбо (Звезды_Рубли_Тексты_Фото)
-    if(pkgName === 'lite') defaultVals = '65_80_50_5';
-    if(pkgName === 'medium') defaultVals = '150_200_200_20';
-    if(pkgName === 'hard') defaultVals = '350_500_500_50';
-    if(pkgName === 'full') defaultVals = '750_999_1000_100'; // Если захочешь вернуть пакет Full
+    if(pkgName === 'lite') defaultVals = '100_250_50_5';
+    if(pkgName === 'medium') defaultVals = '250_625_150_15';
+    if(pkgName === 'hard') defaultVals = '550_1375_400_40';
+    if(pkgName === 'full') defaultVals = '750_1875_500_50';
 
     // getSafePkg проверит, есть ли в базе старые цены. Если есть - возьмет их, если нет - запишет новые defaultVals.
     const pkgData = await getSafePkg(`pkg_${pkgName}`, defaultVals);
@@ -795,21 +795,21 @@ async function sendInvoiceHelper(ctx) {
                     (discount > 0 ? `🎉 *Твоя персональная скидка: ${discount}%*\n\n` : ``) +
                     `💬 *Только сообщения:*\n` +
                     `• 50 шт. — ${calcPrice(t50.rub)}₽ | ${calcPrice(t50.stars)}⭐️\n` +
-                    `• 200 шт. — ${calcPrice(t200.rub)}₽ | ${calcPrice(t200.stars)}⭐️\n` +
-                    `• 500 шт. — ${calcPrice(t500.rub)}₽ | ${calcPrice(t500.stars)}⭐️\n\n` +
+                    `• 150 шт. — ${calcPrice(t200.rub)}₽ | ${calcPrice(t200.stars)}⭐️\n` +
+                    `• 400 шт. — ${calcPrice(t500.rub)}₽ | ${calcPrice(t500.stars)}⭐️\n\n` +
                     `📸 *Только генерация фото:*\n` +
                     `• 5 шт. — ${calcPrice(i5.rub)}₽ | ${calcPrice(i5.stars)}⭐️\n` +
                     `• 15 шт. — ${calcPrice(i15.rub)}₽ | ${calcPrice(i15.stars)}⭐️\n` +
-                    `• 50 шт. — ${calcPrice(i50.rub)}₽ | ${calcPrice(i50.stars)}⭐️\n\n` +
+                    `• 40 шт. — ${calcPrice(i50.rub)}₽ | ${calcPrice(i50.stars)}⭐️\n\n` +
                     `🎁 *Комбо (Сообщения + Фото):*\n` +
                     `• Lite (50💬 + 5📸) — ${calcPrice(lite.rub)}₽ | ${calcPrice(lite.stars)}⭐️\n` +
-                    `• Medium (200💬 + 20📸) — ${calcPrice(medium.rub)}₽ | ${calcPrice(medium.stars)}⭐️\n` +
-                    `• Hard (500💬 + 50📸) — ${calcPrice(hard.rub)}₽ | ${calcPrice(hard.stars)}⭐️\n`;
+            `• Medium (150💬 + 15📷) — ${calcPrice(medium.rub)}₽ | ${calcPrice(medium.stars)}⭐\n` +
+            `• Hard (400💬 + 40📷) — ${calcPrice(hard.rub)}₽ | ${calcPrice(hard.stars)}⭐`;
 
         // Красивая сетка кнопок (3х3)
         const kb = [
-            [Markup.button.callback(`💬 50`, `select_pay_t50`), Markup.button.callback(`💬 200`, `select_pay_t200`), Markup.button.callback(`💬 500`, `select_pay_t500`)],
-            [Markup.button.callback(`📸 5`, `select_pay_i5`), Markup.button.callback(`📸 15`, `select_pay_i15`), Markup.button.callback(`📸 50`, `select_pay_i50`)],
+            [Markup.button.callback(`💬 50`, `select_pay_t50`), Markup.button.callback(`💬  150`, `select_pay_t200`), Markup.button.callback(`💬  400`, `select_pay_t500`)],
+            [Markup.button.callback(`📸 5`, `select_pay_i5`), Markup.button.callback(`📸 15`, `select_pay_i15`), Markup.button.callback(`📸  40`, `select_pay_i50`)],
             [Markup.button.callback(`🎁 Lite`, `select_pay_lite`), Markup.button.callback(`🎁 Medium`, `select_pay_medium`), Markup.button.callback(`🎁 Hard`, `select_pay_hard`)]
         ];
 
