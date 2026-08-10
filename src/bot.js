@@ -9,6 +9,7 @@ import {
     getAllPromocodes, getPromocodeById, togglePromoStatus, togglePromoNewUsersOnly, deletePromocode, updatePromoField, getUsersForBonusNotify, markBonusNotified
 } from './database.js';
 import { createPlategaInvoice, checkPlategaInvoice } from './platega.js';
+import { createCryptoInvoice, getCryptoInvoice } from './cryptobot.js';
 import { processReferral } from './referral.js';
 import { aiQueue, startWorker } from './queue.js';
 import { Telegraf, Markup } from 'telegraf';
@@ -104,7 +105,7 @@ async function requireTerms(ctx, userId) {
             [Markup.button.callback('📄 Пользовательское соглашение', 'tos_agreement')],
             [Markup.button.callback('✅ Принять условия сервиса', 'tos_accept')]
         ]);
-        await ctx.reply("👋 *Добро пожаловать!*\n\nПеред использованием сервиса необходимо ознакомиться и принять наши условия.", { parse_mode: 'Markdown', reply_markup: kb.reply_markup });
+        await ctx.reply("👋 *🔥 Привет!\nЯ твоя виртуальная девушка.\nВыбери режим в «Настройка ИИ» и начинай общаться.\nИли просто напиши мне что-нибудь 👇*\n\nПеред использованием сервиса необходимо ознакомиться и принять наши условия.", { parse_mode: 'Markdown', reply_markup: kb.reply_markup });
         return false; // Блокируем дальнейшее выполнение
     }
     return true; // Пропускаем дальше
@@ -856,7 +857,6 @@ bot.action(/select_pay_([a-z0-9]+)/, async (ctx) => {
 
         const kb = Markup.inlineKeyboard([
             [Markup.button.callback(`⭐️ Telegram Stars (${stars} ⭐️)`, `pay_stars_${pkgName}`)],
-            [Markup.button.callback(`🇷🇺 СБП (QR) (${rub} ₽)`, `pay_platega_2_${pkgName}`)],
             [Markup.button.callback(`🪙 Криптовалюта (${rub} ₽)`, `pay_platega_13_${pkgName}`)],
             [Markup.button.callback(`🔙 Назад`, `trigger_buy`)]
         ]);
@@ -911,14 +911,31 @@ bot.action(/pay_platega_(\d+)_([a-z0-9]+)/, async (ctx) => {
 
         const payloadStr = `pkg_${pkgName}_${userId}`; // Передаем ИМЯ пакета для проверки
 
-        const invoice = await createPlategaInvoice(rubPrice, methodId, payloadStr);
-        if (!invoice || !invoice.transactionId) {
+        let invoice, payUrl, txId;
+        if (methodId === 13) {
+            invoice = await createCryptoInvoice({
+                amountRub: rubPrice,
+                description: `Aura AI пакет ${pkgName}`,
+                payload: payloadStr
+            });
+            if (!invoice || !invoice.invoice_id) {
+                return await ctx.editMessageText("⚠️ Ошибка CryptoBot. Попробуйте Stars.", {
+                    reply_markup: { inline_keyboard: [[Markup.button.callback('◀️ Назад', `select_pay_${pkgName}`)]] }
+                });
+            }
+            payUrl = invoice.bot_invoice_url || invoice.pay_url || invoice.mini_app_invoice_url;
+            txId = String(invoice.invoice_id);
+        } else {
+            invoice = await createPlategaInvoice(rubPrice, methodId, payloadStr);
+        }
+
+        if (methodId !== 13 && (!invoice || !invoice.transactionId)) {
             return await ctx.editMessageText("❌ Ошибка при создании платежа. Платёжная система временно недоступна.", {
                 reply_markup: { inline_keyboard: [[Markup.button.callback(`🔙 Назад`, `select_pay_${pkgName}`)]] }
             });
         }
 
-        const payUrl = invoice.redirect || invoice.url || invoice.paymentUrl;
+        if (methodId !== 13) { payUrl = invoice.redirect || invoice.url || invoice.paymentUrl; txId = invoice.transactionId; }
 
         if (!payUrl) {
             return await ctx.editMessageText("❌ Ошибка: Платёжная система не вернула ссылку на оплату.", {
@@ -926,26 +943,26 @@ bot.action(/pay_platega_(\d+)_([a-z0-9]+)/, async (ctx) => {
             });
         }
 
-        const methodText = methodId === 2 ? 'СБП (QR)' : 'Криптовалюта';
-        const msg = `💳 Оплата через Platega (🪙 ${methodText})\n\n` +
+        const methodText = methodId === 13 ? 'CryptoBot' : (methodId === 2 ? 'СБП (QR)' : 'Криптовалюта');
+        const msg = `💳 Оплата через CryptoBot (🪙 ${methodText})\n\n` +
                     `💰 Сумма: *${rubPrice} ₽*\n` +
-                    `🆔 ID транзакции: \`${invoice.transactionId}\`\n\n` +
+                    `🆔 ID транзакции: \`${txId}\`\n\n` +
                     `📱 *Инструкция:*\n` +
                     `1. Нажмите кнопку «Оплатить»\n` +
-                    `2. Следуйте подсказкам системы Platega\n` +
+                    `2. Следуйте подсказкам CryptoBot\n` +
                     `3. Подтвердите перевод\n` +
                     `4. Возвращайтесь сюда и нажмите «Проверить статус»\n\n` +
                     `_Средства зачисляются автоматически в течение 1-2 минут._`;
 
         const kb = Markup.inlineKeyboard([
             [Markup.button.url(`💳 Оплатить`, payUrl)],
-            [Markup.button.callback(`📊 Проверить статус`, `chk_pl_${invoice.transactionId}_${pkgName}`)],
+            [Markup.button.callback(`📊 Проверить статус`, `chk_pl_${txId}_${pkgName}`)],
             [Markup.button.callback(`🔙 Назад`, `select_pay_${pkgName}`)]
         ]);
 
         await ctx.editMessageText(msg, { parse_mode: 'Markdown', ...kb });
 
-        startPlategaAutoCheck(bot, invoice.transactionId, userId, p.text, p.img, rubPrice, ctx.chat.id);
+        startPlategaAutoCheck(bot, txId, userId, p.text, p.img, rubPrice, ctx.chat.id);
     } catch (e) {
         console.error("[МАГАЗИН ОШИБКА PLATEGA CREATE]:", e);
     }
@@ -961,7 +978,15 @@ bot.action(/chk_pl_(.+)_(.+)/, async (ctx) => {
         const p = await getPackageData(pkgName);
         const userId = ctx.from.id;
 
-        const statusData = await checkPlategaInvoice(txId);
+        let statusData = null;
+        const cryptoInv = await getCryptoInvoice(txId);
+        if (cryptoInv) {
+            statusData = {
+                status: cryptoInv.status === 'paid' ? 'CONFIRMED' : (cryptoInv.status === 'active' ? 'PENDING' : String(cryptoInv.status || 'UNKNOWN'))
+            };
+        } else {
+            statusData = await checkPlategaInvoice(txId);
+        }
 
         if (!statusData) {
             const msg = await ctx.reply('❌ Платежная система отвечает слишком долго или временно недоступна. Попробуйте нажать кнопку еще раз чуть позже.');
@@ -1007,7 +1032,15 @@ function startPlategaAutoCheck(botInstance, txId, userId, textCount, imgCount, r
         }
 
         try {
-            const statusData = await checkPlategaInvoice(txId);
+            let statusData = null;
+        const cryptoInv = await getCryptoInvoice(txId);
+        if (cryptoInv) {
+            statusData = {
+                status: cryptoInv.status === 'paid' ? 'CONFIRMED' : (cryptoInv.status === 'active' ? 'PENDING' : String(cryptoInv.status || 'UNKNOWN'))
+            };
+        } else {
+            statusData = await checkPlategaInvoice(txId);
+        }
             if (statusData && statusData.status === 'CONFIRMED') {
                 clearInterval(interval);
                 const isNew = await processPlategaPayment(userId, rubPrice, textCount, imgCount, txId);
@@ -1058,7 +1091,10 @@ bot.on('successful_payment', async (ctx) => {
 bot.start(async (ctx) => {
     await processReferral(ctx);
     if (!(await requireTerms(ctx, ctx.from.id))) return; // <-- ДОБАВИЛИ ЭТО
-    ctx.reply("Привет! Я нейросеть. Воспользуйся меню ниже для настройки и управления профилем 👇", getMainKeyboard(ctx.from.id));
+    ctx.reply(`Привет 🔥
+Я уже ждала тебя…
+Выбери, какой я буду сегодня — милой, дерзкой, доминантной или совсем без тормозов.
+Жми «Настройка ИИ» или просто напиши мне 👇`, getMainKeyboard(ctx.from.id));
 });
 
 // Кнопка Админ-панели на клавиатуре

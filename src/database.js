@@ -32,7 +32,7 @@ async function initDB() {
         await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE');
         await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS text_balance INT DEFAULT 10');
         await pool.query('ALTER TABLE users ALTER COLUMN text_balance SET DEFAULT 10');
-        await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS image_balance INT DEFAULT 1');
+        await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS image_balance INT DEFAULT 5');
         await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS has_purchased BOOLEAN DEFAULT FALSE');
         await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(255)');
         await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255)');
