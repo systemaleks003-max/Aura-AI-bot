@@ -69,7 +69,7 @@ const themeConfig = {
 
 // === НАЗВАНИЯ РЕЖИМОВ ДЛЯ МЕНЮ ===
 const modeNames = {
-    'flirt': 'Легкий флирт', 'flirthot': 'Флирт (18+)', 'romance': 'Романтика', 'bold': 'Дерзкая',
+    'flirt': 'Легкий флирт', 'flirthot': 'Флирт (18+)', 'romance': '✨ Эро-Таро', 'bold': 'Дерзкая',
     'dom': 'Доминирование', 'hardcore': 'БДСМ Хардкор', 'truth_dare': 'Правда или Действие',
     'eng': 'Репетитор English', 'coder': 'Senior Кодер', 'psych': 'Психолог', 
     'default': 'Дефолтный AI', 'custom': 'Свой системный промпт'

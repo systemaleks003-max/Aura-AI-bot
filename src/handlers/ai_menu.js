@@ -61,15 +61,10 @@ export async function showAi(ctx, modeNames) {
     const msg = `🧠 *Настройки ИИ*\n\nВыберите роль и характер для бота. При смене режима текущий диалог будет очищен.\n\n*Текущий режим:*\n🎭 _${modeName}_`;
 
     const kb = Markup.inlineKeyboard([
-        [Markup.button.callback('💕 Романтика', 'prompt_romance'), Markup.button.callback('😏 Дерзкая', 'prompt_bold')],
+        [Markup.button.callback('✨ Эро-Таро', 'prompt_romance'), Markup.button.callback('😈 Дерзкая', 'prompt_bold')],
         [Markup.button.callback('👠 Доминантка', 'prompt_dom'), Markup.button.callback('🖤 Хардкор', 'prompt_hardcore')],
-        [Markup.button.callback('🎲 Правда или действие', 'prompt_truth_dare')],
-        [Markup.button.callback('🤖 Обычный AI (GPT)', 'prompt_default')],
-        [Markup.button.callback('🧘‍♀️ Психолог', 'prompt_psych'), Markup.button.callback('💻 Программист', 'prompt_coder')],
-        [Markup.button.callback('🇬🇧 Учитель English', 'prompt_eng')],
-        [Markup.button.callback('🌶 Виртуальная девушка (18+)', 'prompt_flirthot')],
-        [Markup.button.callback('🌸 Милая девушка', 'prompt_flirt')],
-        [Markup.button.callback('⚙️ Свой промпт', 'prompt_custom')]
+        [Markup.button.callback('🌶️ Виртуальная девушка (18+)', 'prompt_flirthot')],
+        [Markup.button.callback('🌸 Милая девушка', 'prompt_flirt')]
     ]);
 
     if (ctx.callbackQuery) {
