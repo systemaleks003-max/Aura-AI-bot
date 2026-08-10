@@ -19,6 +19,7 @@ import { promptTemplates } from './prompts.js';
 import { setupHelp } from './handlers/help.js';
 import { setupProfile } from './handlers/profile.js';
 import { setupAi } from './handlers/ai_menu.js';
+import { cancelSilence } from './silence.js';
 
 const requiredEnvs = ['BOT_TOKEN', 'ADMIN_ID', 'OPENROUTER_API_KEY', 'DATABASE_URL'];
 for (const envName of requiredEnvs) {
@@ -1152,6 +1153,7 @@ bot.on(['photo', 'video', 'document', 'animation'], async (ctx) => {
 });
 
 bot.on('text', async (ctx) => {
+  cancelSilence(ctx.from.id);
     const userId = ctx.from.id;
     const text = ctx.message.text;
 

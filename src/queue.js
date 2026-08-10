@@ -1,5 +1,6 @@
 import { Queue, Worker } from 'bullmq';
 import { generateResponse } from './ai.js';
+import { resetSilenceTimer } from './silence.js';
 import { decrementFreeRequest } from './database.js';
 
 // Парсим URL из .env и жестко задаем IPv4 (family: 4)
@@ -62,12 +63,15 @@ export function startWorker(bot) {
                 }
 
                 if (tempMsgId) {
-                    await bot.telegram.editMessageText(chatId, tempMsgId, null, response.text, extraOptions)
-                        .catch(async () => {
-                            await bot.telegram.sendMessage(chatId, response.text, extraOptions);
-                        });
+                    try {
+            await bot.telegram.editMessageText(chatId, tempMsgId, null, response.text, extraOptions);
+          } catch (e) {
+            await bot.telegram.sendMessage(chatId, response.text, extraOptions);
+          }
+          resetSilenceTimer(userId, bot, chatId);
                 } else {
                     await bot.telegram.sendMessage(chatId, response.text, extraOptions);
+          resetSilenceTimer(userId, bot, chatId);
                 }
             }
         } catch (error) {
