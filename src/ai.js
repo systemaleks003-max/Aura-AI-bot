@@ -248,7 +248,20 @@ export async function generateResponse(userId, text) {
                 } // <--- ВОТ ЭТА СКОБКА БЫЛА ПОТЕРЯНА (ЗАКРЫВАЕТ else)
             } catch (e) {
                 console.error("Ошибка генерации фото (Grok):", e.message);
+        try {
+          const photosDir = path.join(__dirname, 'assets', 'free_pics');
+          if (fs.existsSync(photosDir)) {
+            const files = fs.readdirSync(photosDir).filter(f => /\.(jpg|jpeg|png)$/i.test(f));
+            if (files.length) {
+              const randomPhoto = files[Math.floor(Math.random() * files.length)];
+              photoUrl = { source: fs.createReadStream(path.join(photosDir, randomPhoto)) };
+              console.log('[PHOTO] fallback free_pics:', randomPhoto);
             }
+          }
+        } catch (fe) {
+          console.error('[PHOTO] fallback fail:', fe.message);
+        }
+      }
         }
     }
 }
