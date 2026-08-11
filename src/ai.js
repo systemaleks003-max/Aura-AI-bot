@@ -170,7 +170,7 @@ export async function generateResponse(userId, text) {
             // Списываем 1 фото с баланса
             await decrementImageBalance(userId);
 
-            if (!userObj.has_purchased) {
+            if (true /* always free_pics, Grok off */ || !userObj.has_purchased) {
                 // БЕСПЛАТНЫЙ ЮЗЕР -> Берем красивое фото с VPS
                 try {
                     const photosDir = path.join(__dirname, 'assets', 'free_pics');
