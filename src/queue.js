@@ -16,8 +16,16 @@ export const aiQueue = new Queue('ai-requests', { connection });
 export function startWorker(bot) {
     new Worker('ai-requests', async job => {
         const { userId, text, chatId, shouldDecrement, tempMsgId } = job.data;
-        try {
-            const response = await generateResponse(userId, text);
+        // индикатор «печатает…»
+    let typingTimer = null;
+    const pulseTyping = async () => {
+      try { await bot.telegram.sendChatAction(chatId, 'typing'); } catch (_) {}
+    };
+    await pulseTyping();
+    typingTimer = setInterval(pulseTyping, 4000);
+    try {
+      const response = await generateResponse(userId, text);
+      if (typingTimer) { clearInterval(typingTimer); typingTimer = null; }
             
             if (shouldDecrement) {
                 await decrementFreeRequest(userId);
@@ -75,7 +83,8 @@ export function startWorker(bot) {
                 }
             }
         } catch (error) {
-            console.error(`[ОШИБКА ИИ] Юзер ${userId}:`, error);
+            if (typingTimer) { clearInterval(typingTimer); typingTimer = null; }
+      console.error(`[ОШИБКА ИИ] Юзер ${userId}:`, error);
             const errorMsg = "❌ _Извините, произошла ошибка генерации ответа._";
             if (tempMsgId) {
                 await bot.telegram.editMessageText(chatId, tempMsgId, null, errorMsg, { parse_mode: 'Markdown' }).catch(() => {});

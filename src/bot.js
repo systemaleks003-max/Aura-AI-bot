@@ -6,7 +6,7 @@ import {
     getUsersTotal, getUsersPage, grantPackage, updateUserMeta,
     processPlategaPayment, updateLastActive, setStoreOpened, getUsersForRetargeting24h, mark24hPromoSent, getUsersForRetargetingStore, markStorePromoSent,
     createPromocode, activatePromocode, getPaymentHistory,
-    getAllPromocodes, getPromocodeById, togglePromoStatus, togglePromoNewUsersOnly, deletePromocode, updatePromoField, getUsersForBonusNotify, markBonusNotified
+    getAllPromocodes, getPromocodeById, togglePromoStatus, togglePromoNewUsersOnly, deletePromocode, updatePromoField, getUsersForBonusNotify, markBonusNotified, getDailyReport
 } from './database.js';
 import { createPlategaInvoice, checkPlategaInvoice } from './platega.js';
 import { createCryptoInvoice, getCryptoInvoice } from './cryptobot.js';
@@ -1110,46 +1110,38 @@ setupHelp(bot);
 setupProfile(bot, userState, themeConfig);
 setupAi(bot, userState, modeNames);
 
-bot.on(['photo', 'video', 'document', 'animation'], async (ctx) => {
-    const userId = ctx.from.id;
-    if (userId === ADMIN_ID && userState[userId] === 'WAITING_FOR_BROADCAST') {
-        userState[userId] = 'WAITING_FOR_BROADCAST_BTN';
 
-        let msgType = 'photo';
-        let fileId = '';
-        if (ctx.message.photo) {
-            msgType = 'photo';
-            fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
-        } else if (ctx.message.video) {
-            msgType = 'video';
-            fileId = ctx.message.video.file_id;
-        } else if (ctx.message.document) {
-            msgType = 'document';
-            fileId = ctx.message.document.file_id;
-        } else if (ctx.message.animation) {
-            msgType = 'animation';
-            fileId = ctx.message.animation.file_id;
-        }
 
-        adminBroadcastMsg[userId] = {
-            type: msgType,
-            file_id: fileId,
-            caption: ctx.message.caption || '',
-            btn: 'none'
-        };
 
-        return ctx.reply(`Медиа получено. Хотите добавить кнопку к рассылке? Выберите из меню ниже:`, {
-            reply_markup: {
-                inline_keyboard: [
-                    [{ text: '👤 Профиль', callback_data: 'broadcast_btn_profile' }, { text: '🧠 Настройка ИИ', callback_data: 'broadcast_btn_ai' }],
-                    [{ text: '👥 Рефералы', callback_data: 'broadcast_btn_refs' }, { text: '🆘 Помощь', callback_data: 'broadcast_btn_help' }],
-                    [{ text: '⭐️ Магазин', callback_data: 'broadcast_btn_store' }],
-                    [{ text: 'Без кнопки', callback_data: 'broadcast_btn_none' }],
-                    [{ text: '❌ Отмена', callback_data: 'cancel_input' }]
-                ]
-            }
-        });
-    }
+
+bot.on('photo', async (ctx) => {
+  const userId = ctx.from.id;
+  try { cancelSilence(userId); } catch (_) {}
+  try { await ctx.sendChatAction('typing'); } catch (_) {}
+  const reactions = [
+    "Ого… ну ничего себе 🔥",
+    "А ты красавчик, не скромничай 😏",
+    "Ммм, уже интереснее…",
+    "Так-так, кто это у нас такой смелый?",
+    "Фото принято. Я впечатлена 😈",
+    "Ну здравствуй, сюрприз…",
+    "Вижу тебя. И мне нравится направление.",
+    "Ого. Продолжай в том же духе 🔥",
+    "Не ожидала, но приятно…",
+    "Красиво. А теперь словами скажи, чего хочешь.",
+    "Приняла. Ты умеешь привлекать внимание 😏",
+    "Вау. Молчание отменяется.",
+    "Ну всё, я уже заинтригована…",
+    "Фото есть. Диалог тоже нужен, не стесняйся.",
+    "Сексуально. Что дальше?",
+    "Ты только фото кинул — а я уже в настроении 🔥",
+    "Окей, вижу. Теперь напиши мне нормально…",
+    "Хм… интрига растёт.",
+    "Сильный ход. Не молчи теперь.",
+    "Принято 💋 Давай продолжим разговор."
+  ];
+  const text = reactions[Math.floor(Math.random() * reactions.length)];
+  await ctx.reply(text);
 });
 
 bot.on('text', async (ctx) => {
@@ -1412,7 +1404,40 @@ bot.on('text', async (ctx) => {
 function startAutoFunnels() {
     setInterval(async () => {
         try {
-            // 1. "Скучаю" (24 часа)
+            // 0. Ежедневный отчёт админу (раз в сутки)
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const last = await getSetting('daily_report_date', '');
+      if (last !== today) {
+        const r = await getDailyReport();
+        let starBal = '—';
+        try {
+          const bal = await bot.telegram.callApi('getMyStarBalance');
+          // { amount: number } or similar
+          starBal = bal?.amount ?? bal?.balance ?? JSON.stringify(bal);
+        } catch (_) {}
+        const msg =
+          `📊 *Отчёт* (${today})\n\n` +
+          `*Сегодня:*\n` +
+          `💳 Оплат: *${r.payments_count}* (юзеров: ${r.paying_users})\n` +
+          `⭐ Stars: *${r.stars}* | ₽ *${r.rub}*\n` +
+          `🆕 Новых: *${r.new_users}*\n` +
+          `💬 Сообщ: *${r.messages_today}*\n` +
+          `🧠 API сегодня: *$${Number(r.api_cost_today).toFixed(4)}*\n\n` +
+          `*Всего:*\n` +
+          `💳 Оплат: *${r.payments_total}* | платных юзеров: *${r.paid_users}*\n` +
+          `⭐ Stars: *${r.stars_total}* | ₽ *${r.rub_total}*\n` +
+          `🧠 API всего: *$${Number(r.api_cost_total).toFixed(4)}*\n` +
+          `👤 Юзеров: *${r.total_users}*\n` +
+          `⭐ Баланс Stars бота: *${starBal}*`;
+        await bot.telegram.sendMessage(ADMIN_ID, msg, { parse_mode: 'Markdown' });
+        await setSetting('daily_report_date', today);
+      }
+    } catch (e) {
+      console.error('[DAILY_REPORT]', e.message);
+    }
+
+    // 1. "Скучаю" (24 часа)
             const inactive24h = await getUsersForRetargeting24h();
             for (const uid of inactive24h) {
                 try {
