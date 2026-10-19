@@ -509,7 +509,11 @@ bot.action(/mu_open_(\d+)/, async (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return;
     const targetId = parseInt(ctx.match[1], 10);
     adminTargetUser[ctx.from.id] = targetId;
-    return renderUserManagePanel(ctx, targetId);
+    try {
+        return await renderUserManagePanel(ctx, targetId);
+    } finally {
+        delete adminTargetUser[ctx.from.id];
+    }
 });
 bot.action('ignore', async (ctx) => ctx.answerCbQuery());
 
@@ -1116,8 +1120,8 @@ setupAi(bot, userState, modeNames);
 
 bot.on('photo', async (ctx) => {
   const userId = ctx.from.id;
-  try { cancelSilence(userId); } catch (_) {}
-  try { await ctx.sendChatAction('typing'); } catch (_) {}
+  try { cancelSilence(userId); } catch (e) { console.error('Ошибка cancelSilence:', e.message); }
+  try { await ctx.sendChatAction('typing'); } catch (e) { console.error('Ошибка sendChatAction:', e.message); }
   const reactions = [
     "Ого… ну ничего себе 🔥",
     "А ты красавчик, не скромничай 😏",
@@ -1160,7 +1164,11 @@ bot.on('text', async (ctx) => {
             adminTargetUser[userId] = targetId;
             delete userState[userId];
             await ctx.deleteMessage().catch(() => {});
-            return renderUserManagePanel(ctx, targetId);
+            try {
+                return await renderUserManagePanel(ctx, targetId);
+            } finally {
+                delete adminTargetUser[userId];
+            }
         }
 
         const targetId = adminTargetUser[userId];
@@ -1173,7 +1181,11 @@ bot.on('text', async (ctx) => {
 
                 delete userState[userId];
                 await ctx.reply("✅ Количество запросов изменено!");
-                return renderUserManagePanel(ctx, targetId);
+                try {
+                    return await renderUserManagePanel(ctx, targetId);
+                } finally {
+                    delete adminTargetUser[userId];
+                }
             }
             if (userState[userId] === 'WAITING_MU_IMG') {
                 const count = parseInt(text.trim(), 10);
@@ -1183,7 +1195,11 @@ bot.on('text', async (ctx) => {
 
                 delete userState[userId];
                 await ctx.reply("✅ Количество фото изменено!");
-                return renderUserManagePanel(ctx, targetId);
+                try {
+                    return await renderUserManagePanel(ctx, targetId);
+                } finally {
+                    delete adminTargetUser[userId];
+                }
             }
             if (userState[userId] === 'WAITING_MU_MSG') {
                 delete userState[userId];
@@ -1193,7 +1209,11 @@ bot.on('text', async (ctx) => {
                 } catch (e) {
                     await ctx.reply("❌ Ошибка доставки (возможно, пользователь заблокировал бота).");
                 }
-                return renderUserManagePanel(ctx, targetId);
+                try {
+                    return await renderUserManagePanel(ctx, targetId);
+                } finally {
+                    delete adminTargetUser[userId];
+                }
             }
         }
     }
@@ -1415,7 +1435,7 @@ function startAutoFunnels() {
           const bal = await bot.telegram.callApi('getMyStarBalance');
           // { amount: number } or similar
           starBal = bal?.amount ?? bal?.balance ?? JSON.stringify(bal);
-        } catch (_) {}
+        } catch (e) { console.error('Ошибка getMyStarBalance:', e.message); }
         const msg =
           `📊 *Отчёт* (${today})\n\n` +
           `*Сегодня:*\n` +
@@ -1458,7 +1478,7 @@ function startAutoFunnels() {
                     await bot.telegram.sendMessage(uid, msg, { parse_mode: 'HTML' });
                     await markStorePromoSent(uid);
                     await new Promise(r => setTimeout(r, 50));
-                } catch (e) { /* Игнор отписки */ }
+                } catch (e) { console.error('Ошибка автоворонка брошенная корзина:', e.message); }
             }
 
             // 3. Уведомление о ежедневном бонусе
@@ -1471,7 +1491,7 @@ function startAutoFunnels() {
                     });
                     await markBonusNotified(uid);
                     await new Promise(r => setTimeout(r, 50));
-                } catch (e) { /* Игнорируем блокировки */ }
+                } catch (e) { console.error('Ошибка автоворонка уведомление о бонусе:', e.message); }
             }
         } catch (e) {
             console.error("[Автоворонка] Ошибка:", e);
@@ -1483,6 +1503,16 @@ startAutoFunnels();
 
 startWorker(bot);
 startBroadcastWorker(bot);
+
+// Глобальные обработчики для предотвращения молчаливого падения процесса
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception thrown:', error);
+    process.exit(1);
+});
+
 bot.launch().then(() => console.log('🚀 Бот успешно запущен и подключен к Telegram!'));
 
 import { closeDB } from './database.js';

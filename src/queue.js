@@ -19,7 +19,7 @@ export function startWorker(bot) {
         // индикатор «печатает…»
     let typingTimer = null;
     const pulseTyping = async () => {
-      try { await bot.telegram.sendChatAction(chatId, 'typing'); } catch (_) {}
+      try { await bot.telegram.sendChatAction(chatId, 'typing'); } catch (e) { console.error('Ошибка pulseTyping:', e.message); }
     };
     await pulseTyping();
     typingTimer = setInterval(pulseTyping, 4000);
