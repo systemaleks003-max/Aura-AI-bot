@@ -498,6 +498,59 @@ export async function markBonusNotified(userId) {
     await pool.query('UPDATE users SET bonus_notified = TRUE WHERE telegram_id = $1', [userId]);
 }
 
+export async function getDailyReport() {
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+    // Сегодняшние платежи
+    const todayPayments = await pool.query(`
+        SELECT
+            COUNT(*) as payments_count,
+            COUNT(DISTINCT user_id) as paying_users,
+            COALESCE(SUM(amount) FILTER (WHERE currency = 'XTR'), 0) as stars,
+            COALESCE(SUM(amount) FILTER (WHERE currency = 'RUB'), 0) as rub
+        FROM payments
+        WHERE created_at >= $1::date
+    `, [today]);
+
+    // Новые пользователи сегодня
+    const newUsers = await pool.query('SELECT COUNT(*) as new_users FROM users WHERE created_at >= $1::date', [today]);
+
+    // Сообщения сегодня
+    const messagesRes = await pool.query('SELECT COUNT(*) as messages_today FROM messages WHERE created_at >= $1::date', [today]);
+
+    // API расходы сегодня
+    const apiCostToday = await pool.query('SELECT COALESCE(SUM(daily_api_cost), 0) as api_cost_today FROM users');
+
+    // Общие статы
+    const totalPayments = await pool.query(`
+        SELECT
+            COUNT(*) as payments_total,
+            COUNT(DISTINCT user_id) as paid_users,
+            COALESCE(SUM(amount) FILTER (WHERE currency = 'XTR'), 0) as stars_total,
+            COALESCE(SUM(amount) FILTER (WHERE currency = 'RUB'), 0) as rub_total
+        FROM payments
+    `);
+
+    const totalApiCost = await pool.query('SELECT COALESCE(SUM(total_api_cost), 0) as api_cost_total FROM users');
+    const totalUsers = await pool.query('SELECT COUNT(*) as total_users FROM users');
+
+    return {
+        payments_count: parseInt(todayPayments.rows[0].payments_count, 10),
+        paying_users: parseInt(todayPayments.rows[0].paying_users, 10),
+        stars: parseFloat(todayPayments.rows[0].stars),
+        rub: parseFloat(todayPayments.rows[0].rub),
+        new_users: parseInt(newUsers.rows[0].new_users, 10),
+        messages_today: parseInt(messagesRes.rows[0].messages_today, 10),
+        api_cost_today: parseFloat(apiCostToday.rows[0].api_cost_today),
+        payments_total: parseInt(totalPayments.rows[0].payments_total, 10),
+        paid_users: parseInt(totalPayments.rows[0].paid_users, 10),
+        stars_total: parseFloat(totalPayments.rows[0].stars_total),
+        rub_total: parseFloat(totalPayments.rows[0].rub_total),
+        api_cost_total: parseFloat(totalApiCost.rows[0].api_cost_total),
+        total_users: parseInt(totalUsers.rows[0].total_users, 10)
+    };
+}
+
 export async function closeDB() {
     await pool.end();
 }
