@@ -125,24 +125,55 @@ export async function generateResponse(userId, text) {
     messages.push({ role: 'user', content: text });
 
     let modelParams = {
-        model: 'deepseek/deepseek-v4-flash', 
+        model: 'deepseek/deepseek-v4-flash',
         messages: messages,
         max_tokens: 1024,
         extra_body: {
-            provider: { 
-                order: ["SiliconFlow"], 
+            provider: {
+                order: ["SiliconFlow"],
                 allow_fallbacks: false
             }
         }
     };
 
-    const completion = await openai.chat.completions.create(modelParams);
-    const aiText = completion.choices[0]?.message?.content;
+    let completion;
+    try {
+        console.log(`[AI REQUEST] Модель: ${modelParams.model}, провайдер: SiliconFlow`);
+        completion = await openai.chat.completions.create(modelParams);
 
-    if (!aiText) {
-        console.error(`[AI ERROR] Пустой ответ от OpenRouter для юзера ${userId}`);
-        return { text: "❌ Произошла ошибка на стороне нейросети.", photo: null };
+        // Детальное логирование ответа
+        console.log(`[AI RESPONSE] Статус: OK, choices: ${completion.choices?.length || 0}`);
+
+        if (completion.choices && completion.choices.length > 0) {
+            console.log(`[AI RESPONSE] Первый choice: role=${completion.choices[0]?.message?.role}, content_length=${completion.choices[0]?.message?.content?.length || 0}`);
+        }
+
+        // Если ответ пустой, логируем полный объект
+        if (!completion.choices || completion.choices.length === 0 || !completion.choices[0]?.message?.content) {
+            console.error(`[AI ERROR] Пустой ответ от OpenRouter для юзера ${userId}`);
+            console.error(`[AI ERROR] Полный ответ:`, JSON.stringify(completion, null, 2));
+            console.error(`[AI ERROR] Model: ${modelParams.model}`);
+            console.error(`[AI ERROR] Provider order: ${JSON.stringify(modelParams.extra_body.provider.order)}`);
+
+            return {
+                text: "❌ Произошла ошибка на стороне нейросети. Модель вернула пустой ответ. Попробуйте позже.",
+                photo: null
+            };
+        }
+    } catch (apiError) {
+        console.error(`[AI ERROR] Ошибка запроса к OpenRouter для юзера ${userId}:`, apiError.message);
+        console.error(`[AI ERROR] Status: ${apiError.status}, Code: ${apiError.code}`);
+        if (apiError.response) {
+            console.error(`[AI ERROR] Response data:`, JSON.stringify(apiError.response.data, null, 2));
+        }
+
+        return {
+            text: `❌ Ошибка API OpenRouter: ${apiError.message}. Попробуйте позже.`,
+            photo: null
+        };
     }
+
+    const aiText = completion.choices[0].message.content;
 
     let finalAiText = aiText;
     let photoUrl = null;
