@@ -112,6 +112,8 @@ export function startWorker(bot) {
                 }
 
                 // Если пользователь явно попросил голосовое сообщение
+                console.log('[VOICE DEBUG] Запрос голоса:', response.isVoiceRequest, 'Длина текста:', response.text.length);
+
                 if (response.isVoiceRequest) {
                     // Сначала ТОЛЬКО проверяем лимит, НЕ списываем
                     const hasVoiceLimit = await checkVoiceLimit(userId);
@@ -119,11 +121,15 @@ export function startWorker(bot) {
                     // Очищаем текст от Markdown-символов для корректного подсчёта длины
                     const cleanTextForCheck = stripMarkdown(response.text);
 
+                    console.log('[VOICE DEBUG] Лимит голоса:', hasVoiceLimit, 'Длина < 300:', cleanTextForCheck.length < 300, 'Чистая длина:', cleanTextForCheck.length);
+
                     if (hasVoiceLimit && cleanTextForCheck.length < 300) {
                         try {
+                            console.log(`[VOICE DEBUG] Запускаю генерацию аудио для текста: "${response.text.substring(0, 100)}..."`);
                             console.log(`[VOICE] Генерация голосового для юзера ${userId}...`);
                             await bot.telegram.sendChatAction(chatId, 'record_voice');
                             const voiceFile = await generateVoice(response.text);
+                            console.log('[VOICE DEBUG] Файл создан:', voiceFile);
 
                             if (voiceFile && fs.existsSync(voiceFile)) {
                                 // ✅ Генерация успешна — ТЕПЕРЬ списываем лимит
@@ -148,6 +154,7 @@ export function startWorker(bot) {
                         }
                     } else {
                         // Лимит закончился или текст слишком длинный
+                        console.log('[VOICE DEBUG] Не генерируем голос. Причина: лимит =', hasVoiceLimit, ', длина < 300 =', cleanTextForCheck.length < 300);
                         let finalText = response.text;
 
                         if (!hasVoiceLimit) {
@@ -161,6 +168,7 @@ export function startWorker(bot) {
                     }
                 } else {
                     // Обычное текстовое сообщение без голоса
+                    console.log('[VOICE DEBUG] isVoiceRequest = false. Отправляю обычный текст.');
                     await safeHumanReply(bot, chatId, response.text, extraOptions);
                     resetSilenceTimer(userId, bot, chatId);
                 }
