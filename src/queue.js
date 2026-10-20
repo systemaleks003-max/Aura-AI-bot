@@ -2,6 +2,9 @@ import { Queue, Worker } from 'bullmq';
 import { generateResponse } from './ai.js';
 import { resetSilenceTimer } from './silence.js';
 import { decrementFreeRequest } from './database.js';
+import fs from 'fs';
+import { generateVoice } from './services/tts.js';
+import { humanReply } from './utils/human.js';
 
 // Парсим URL из .env и жестко задаем IPv4 (family: 4)
 const redisUrl = new URL(process.env.REDIS_URL);
@@ -60,9 +63,15 @@ export function startWorker(bot) {
                     }
                 }
             } else {
-                // Если фото нет, отправляем текст
+                // Если фото нет, отправляем текст (с шансом голоса)
+
+                // Удаляем временное сообщение "Печатаю ответ..."
+                if (tempMsgId) {
+                    await bot.telegram.deleteMessage(chatId, tempMsgId).catch(() => {});
+                }
+
                 const extraOptions = { parse_mode: 'Markdown' };
-                
+
                 // Если нейросеть сказала, что лимит исчерпан — прикрепляем кнопку
                 if (response.showBuyButton) {
                     extraOptions.reply_markup = {
@@ -70,16 +79,31 @@ export function startWorker(bot) {
                     };
                 }
 
-                if (tempMsgId) {
+                // 20% шанс отправки голосового сообщения (только для коротких текстов)
+                if (Math.random() < 0.2 && response.text.length < 300) {
                     try {
-            await bot.telegram.editMessageText(chatId, tempMsgId, null, response.text, extraOptions);
-          } catch (e) {
-            await bot.telegram.sendMessage(chatId, response.text, extraOptions);
-          }
-          resetSilenceTimer(userId, bot, chatId);
+                        await bot.telegram.sendChatAction(chatId, 'record_voice');
+                        const voiceFile = await generateVoice(response.text);
+
+                        if (voiceFile && fs.existsSync(voiceFile)) {
+                            await bot.telegram.sendVoice(chatId, { source: voiceFile });
+                            fs.unlinkSync(voiceFile); // Удаляем временный файл
+                            resetSilenceTimer(userId, bot, chatId);
+                        } else {
+                            // Если голос не сгенерировался, отправляем текстом с имитацией
+                            await humanReply({ reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions), sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action) }, response.text);
+                            resetSilenceTimer(userId, bot, chatId);
+                        }
+                    } catch (voiceError) {
+                        console.error('[VOICE ERROR]', voiceError.message);
+                        // Fallback: отправляем текстом с имитацией
+                        await humanReply({ reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions), sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action) }, response.text);
+                        resetSilenceTimer(userId, bot, chatId);
+                    }
                 } else {
-                    await bot.telegram.sendMessage(chatId, response.text, extraOptions);
-          resetSilenceTimer(userId, bot, chatId);
+                    // Отправляем текстом с имитацией живого общения
+                    await humanReply({ reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions), sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action) }, response.text);
+                    resetSilenceTimer(userId, bot, chatId);
                 }
             }
         } catch (error) {

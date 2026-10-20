@@ -2,3 +2,4 @@
 .env*
 *.save
 node_modules/
+temp_voice_*.webm
