@@ -6,7 +6,7 @@ import {
     getUsersTotal, getUsersPage, grantPackage, updateUserMeta,
     processPlategaPayment, updateLastActive, setStoreOpened, getUsersForRetargeting24h, mark24hPromoSent, getUsersForRetargetingStore, markStorePromoSent,
     createPromocode, activatePromocode, getPaymentHistory,
-    getAllPromocodes, getPromocodeById, togglePromoStatus, togglePromoNewUsersOnly, deletePromocode, updatePromoField, getUsersForBonusNotify, markBonusNotified, getDailyReport, addCrystals
+    getAllPromocodes, getPromocodeById, togglePromoStatus, togglePromoNewUsersOnly, deletePromocode, updatePromoField, getUsersForBonusNotify, markBonusNotified, getDailyReport, addCrystals, resetVoiceFreeCount
 } from './database.js';
 import { createPlategaInvoice, checkPlategaInvoice } from './platega.js';
 import { createCryptoInvoice, getCryptoInvoice } from './cryptobot.js';
@@ -551,7 +551,8 @@ async function renderUserManagePanel(ctx, targetId) {
                     `📝 <b>Имя:</b> ${nameStr} (${userStr})\n\n` +
                     `💬 <b>Баланс сообщений:</b> ${tUser.text_balance || 0}\n` +
                     `📸 <b>Баланс фото:</b> ${tUser.image_balance || 0}\n` +
-                    `💎 <b>Статус (Has Purchased):</b> ${tUser.has_purchased ? '✅ Да' : '❌ Нет'}\n` +
+                    `💎 <b>Кристаллы:</b> ${tUser.crystals || 0}\n` +
+                    `✅ <b>Статус (Has Purchased):</b> ${tUser.has_purchased ? '✅ Да' : '❌ Нет'}\n` +
                     `🚫 <b>Блокировка:</b> ${tUser.is_blocked ? 'Заблокирован' : 'Активен'}`;
 
         const kb = Markup.inlineKeyboard([
@@ -672,15 +673,17 @@ bot.action(/mu_give_pkg_(\d+)_(\d+)/, async (ctx) => {
 
 bot.action(/^mu_give_vip:(.+)$/, async (ctx) => {
     const targetId = ctx.match[1];
-    if (!targetId) {
-        return ctx.answerCbQuery('❌ Ошибка: не передан ID пользователя');
+    if (!targetId || targetId === 'undefined' || isNaN(parseInt(targetId, 10))) {
+        return ctx.answerCbQuery('❌ Ошибка: устаревшая кнопка. Откройте карточку пользователя заново.', { show_alert: true });
     }
 
     try {
         const userId = parseInt(targetId, 10);
-        // VIP - это просто много текстов и фото
+        // VIP - это много текстов, фото и кристаллов
         await grantPackage(userId, 99999, 9999, 0, 'ADMIN_VIP');
-        await ctx.answerCbQuery('✅ VIP статус успешно выдан (99999 текстов, 9999 фото)!');
+        await addCrystals(userId, 100); // Начисляем 100 кристаллов для голосовых
+        await resetVoiceFreeCount(userId); // Сбрасываем счетчик бесплатных, чтобы снова было 3 бесплатных
+        await ctx.answerCbQuery('✅ VIP статус успешно выдан (99999 текстов, 9999 фото, 100 кристаллов + сброс лимитов)!');
         return renderUserManagePanel(ctx, userId);
     } catch (error) {
         console.error('[mu_give_vip ERROR]', error);

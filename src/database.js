@@ -704,3 +704,14 @@ export async function addCrystals(userId, amount) {
         [amount, userId]
     );
 }
+
+/**
+ * Сбрасывает счетчик бесплатных голосовых (например, при выдаче VIP)
+ * @param {number} userId - Telegram ID пользователя
+ */
+export async function resetVoiceFreeCount(userId) {
+    await pool.query(
+        'UPDATE users SET voice_free_count = 0 WHERE telegram_id = $1',
+        [userId]
+    );
+}
