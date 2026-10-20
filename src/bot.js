@@ -532,11 +532,11 @@ async function renderUserManagePanel(ctx, targetId) {
                 `🚫 <b>Блокировка:</b> ${tUser.is_blocked ? 'Заблокирован' : 'Активен'}`;
 
     const kb = Markup.inlineKeyboard([
-        [Markup.button.callback('💬 Ред. Сообщения', 'mu_edit_text'), Markup.button.callback('📸 Ред. Фото', 'mu_edit_img')],
-        [Markup.button.callback('📦 Выдать пакет', 'mu_set_package')],
-        [Markup.button.callback('👑 Выдать VIP', 'mu_give_vip'), Markup.button.callback('💳 Платежи', 'mu_payments')],
-        [Markup.button.callback(tUser.is_blocked ? '✅ Разблокировать' : '🚫 Заблокировать', 'mu_block')],
-        [Markup.button.callback('✉️ Написать', 'mu_msg')],
+        [Markup.button.callback('💬 Ред. Сообщения', `mu_edit_text:${targetId}`), Markup.button.callback('📸 Ред. Фото', `mu_edit_img:${targetId}`)],
+        [Markup.button.callback('📦 Выдать пакет', `mu_set_package:${targetId}`)],
+        [Markup.button.callback('👑 Выдать VIP', `mu_give_vip:${targetId}`), Markup.button.callback('💳 Платежи', `mu_payments:${targetId}`)],
+        [Markup.button.callback(tUser.is_blocked ? '✅ Разблокировать' : '🚫 Заблокировать', `mu_block:${targetId}`)],
+        [Markup.button.callback('✉️ Написать', `mu_msg:${targetId}`)],
         [Markup.button.callback('🔙 Назад', 'admin_back')]
     ]);
 
@@ -559,33 +559,44 @@ bot.action('mu_start', async (ctx) => {
 });
 
 // --- ОБРАБОТЧИКИ КАРТОЧКИ ПОЛЬЗОВАТЕЛЯ ---
-bot.action('mu_edit_text', async (ctx) => {
+bot.action(/^mu_edit_text:(.+)$/, async (ctx) => {
+    const targetId = ctx.match[1];
+    if (!targetId) return ctx.answerCbQuery('Ошибка: не передан ID пользователя');
+    adminTargetUser[ctx.from.id] = parseInt(targetId, 10);
     userState[ctx.from.id] = 'WAITING_MU_TEXT';
     await ctx.answerCbQuery();
     return ctx.reply("💬 Введите новое количество текстов (число):", { reply_markup: { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'cancel_input' }]] } });
 });
 
-bot.action('mu_edit_img', async (ctx) => {
+bot.action(/^mu_edit_img:(.+)$/, async (ctx) => {
+    const targetId = ctx.match[1];
+    if (!targetId) return ctx.answerCbQuery('Ошибка: не передан ID пользователя');
+    adminTargetUser[ctx.from.id] = parseInt(targetId, 10);
     userState[ctx.from.id] = 'WAITING_MU_IMG';
     await ctx.answerCbQuery();
     return ctx.reply("📸 Введите новое количество фото (число):", { reply_markup: { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'cancel_input' }]] } });
 });
 
 // Меню выдачи пакета из админки
-bot.action('mu_set_package', async (ctx) => {
+bot.action(/^mu_set_package:(.+)$/, async (ctx) => {
+    const targetId = ctx.match[1];
+    if (!targetId) return ctx.answerCbQuery('Ошибка: не передан ID пользователя');
+    adminTargetUser[ctx.from.id] = parseInt(targetId, 10);
     const kb = Markup.inlineKeyboard([
         [Markup.button.callback('📦 Lite (50/5)', 'mu_give_pkg_50_5')],
         [Markup.button.callback('💼 Medium (200/20)', 'mu_give_pkg_200_20')],
         [Markup.button.callback('🔥 Hard (500/50)', 'mu_give_pkg_500_50')],
         [Markup.button.callback('👑 Full (1000/100)', 'mu_give_pkg_1000_100')],
-        [Markup.button.callback('🔙 Назад', 'mu_back_to_user')]
+        [Markup.button.callback('🔙 Назад', `mu_back_to_user:${targetId}`)]
     ]);
     return ctx.editMessageText("📦 Выберите пакет для зачисления этому юзеру:", { reply_markup: kb.reply_markup });
 });
 
 // Возврат в карточку
-bot.action('mu_back_to_user', async (ctx) => {
-    return renderUserManagePanel(ctx, adminTargetUser[ctx.from.id]);
+bot.action(/^mu_back_to_user:(.+)$/, async (ctx) => {
+    const targetId = parseInt(ctx.match[1], 10);
+    if (!targetId) return ctx.answerCbQuery('Ошибка: не передан ID пользователя');
+    return renderUserManagePanel(ctx, targetId);
 });
 
 // Непосредственно выдача пакета админом
@@ -602,44 +613,71 @@ bot.action(/mu_give_pkg_(\d+)_(\d+)/, async (ctx) => {
 });
 
 
-bot.action('mu_give_vip', async (ctx) => {
-    const targetId = adminTargetUser[ctx.from.id];
-    // VIP - это просто много текстов и фото
-    await grantPackage(targetId, 99999, 9999, 0, 'ADMIN_VIP');
-    await ctx.answerCbQuery('✅ VIP статус успешно выдан (99999 текстов, 9999 фото)!');
-    return renderUserManagePanel(ctx, targetId);
-});
-
-bot.action('mu_payments', async (ctx) => {
-    const targetId = adminTargetUser[ctx.from.id];
-    const payments = await getPaymentHistory(targetId);
-
-    if (payments.length === 0) {
-        return ctx.answerCbQuery('У пользователя нет платежей.', { show_alert: true });
+bot.action(/^mu_give_vip:(.+)$/, async (ctx) => {
+    const targetId = ctx.match[1];
+    if (!targetId) {
+        return ctx.answerCbQuery('❌ Ошибка: не передан ID пользователя');
     }
 
-    let msg = `💳 <b>История платежей (ID: ${targetId}):</b>\n\n`;
-    for (const p of payments) {
-        msg += `• ${new Date(p.created_at).toLocaleString('ru-RU')} - ${p.amount} ${p.currency}\n`;
+    try {
+        const userId = parseInt(targetId, 10);
+        // VIP - это просто много текстов и фото
+        await grantPackage(userId, 99999, 9999, 0, 'ADMIN_VIP');
+        await ctx.answerCbQuery('✅ VIP статус успешно выдан (99999 текстов, 9999 фото)!');
+        return renderUserManagePanel(ctx, userId);
+    } catch (error) {
+        console.error('[mu_give_vip ERROR]', error);
+        return ctx.answerCbQuery(`❌ Ошибка выдачи VIP: ${error.message}`, { show_alert: true });
     }
-
-    return ctx.reply(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '❌ Закрыть', callback_data: 'cancel_input' }]] } });
 });
 
-bot.action('mu_msg', async (ctx) => {
+bot.action(/^mu_payments:(.+)$/, async (ctx) => {
+    const targetId = parseInt(ctx.match[1], 10);
+    if (!targetId) return ctx.answerCbQuery('Ошибка: не передан ID пользователя');
+
+    try {
+        const payments = await getPaymentHistory(targetId);
+
+        if (payments.length === 0) {
+            return ctx.answerCbQuery('У пользователя нет платежей.', { show_alert: true });
+        }
+
+        let msg = `💳 <b>История платежей (ID: ${targetId}):</b>\n\n`;
+        for (const p of payments) {
+            msg += `• ${new Date(p.created_at).toLocaleString('ru-RU')} - ${p.amount} ${p.currency}\n`;
+        }
+
+        return ctx.reply(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '❌ Закрыть', callback_data: 'cancel_input' }]] } });
+    } catch (error) {
+        console.error('[mu_payments ERROR]', error);
+        return ctx.answerCbQuery(`❌ Ошибка загрузки платежей: ${error.message}`, { show_alert: true });
+    }
+});
+
+bot.action(/^mu_msg:(.+)$/, async (ctx) => {
+    const targetId = ctx.match[1];
+    if (!targetId) return ctx.answerCbQuery('Ошибка: не передан ID пользователя');
+    adminTargetUser[ctx.from.id] = parseInt(targetId, 10);
     userState[ctx.from.id] = 'WAITING_MU_MSG';
     await ctx.answerCbQuery();
     return ctx.reply("Введите текст сообщения, которое получит этот пользователь:", { reply_markup: { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'cancel_input' }]] } });
 });
 
-bot.action('mu_block', async (ctx) => {
-    const targetId = adminTargetUser[ctx.from.id];
-    const tUser = await getUser(targetId);
-    if (!tUser) return ctx.answerCbQuery('Ошибка');
+bot.action(/^mu_block:(.+)$/, async (ctx) => {
+    const targetId = parseInt(ctx.match[1], 10);
+    if (!targetId) return ctx.answerCbQuery('Ошибка: не передан ID пользователя');
 
-    await setBlockStatus(targetId, !tUser.is_blocked);
-    await ctx.answerCbQuery(!tUser.is_blocked ? 'Пользователь заблокирован' : 'Пользователь разблокирован');
-    return renderUserManagePanel(ctx, targetId);
+    try {
+        const tUser = await getUser(targetId);
+        if (!tUser) return ctx.answerCbQuery('❌ Пользователь не найден');
+
+        await setBlockStatus(targetId, !tUser.is_blocked);
+        await ctx.answerCbQuery(!tUser.is_blocked ? 'Пользователь заблокирован' : 'Пользователь разблокирован');
+        return renderUserManagePanel(ctx, targetId);
+    } catch (error) {
+        console.error('[mu_block ERROR]', error);
+        return ctx.answerCbQuery(`❌ Ошибка блокировки: ${error.message}`, { show_alert: true });
+    }
 });
 
 bot.action(/broadcast_btn_(.+)/, async (ctx) => {
