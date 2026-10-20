@@ -1,0 +1,9 @@
+node_modules
+npm-debug.log
+.env
+.git
+.gitignore
+README.md
+test_tts.js
+temp_voice_*.mp3
+*.log

@@ -3,7 +3,6 @@
   "type": "module",
   "dependencies": {
     "bullmq": "^5.7.0",
-    "msedge-tts": "^2.1.0",
     "openai": "^4.33.0",
     "pg": "^8.11.5",
     "telegraf": "^4.16.3"

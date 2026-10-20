@@ -115,7 +115,10 @@ export function startWorker(bot) {
                 if (response.isVoiceRequest) {
                     const canSendVoice = await checkAndDeductVoiceLimit(userId);
 
-                    if (canSendVoice && response.text.length < 300) {
+                    // Очищаем текст от Markdown-символов для корректного подсчёта длины
+                    const cleanTextForCheck = stripMarkdown(response.text);
+
+                    if (canSendVoice && cleanTextForCheck.length < 300) {
                         try {
                             console.log(`[VOICE] Генерация голосового для юзера ${userId}...`);
                             await bot.telegram.sendChatAction(chatId, 'record_voice');
@@ -145,7 +148,7 @@ export function startWorker(bot) {
 
                         if (!canSendVoice) {
                             finalText += "\n\n🔊 _Лимит бесплатных голосовых исчерпан (3/день). Купи кристаллы в профиле, чтобы я продолжала с тобой говорить голосом_ 💎";
-                        } else if (response.text.length >= 300) {
+                        } else if (cleanTextForCheck.length >= 300) {
                             finalText += "\n\n⚠️ _Текст слишком длинный для голосового (макс. 300 символов)._";
                         }
 
