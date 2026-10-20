@@ -1,4 +1,5 @@
-import OpenAI from 'openai';
+import { chat as vibecodeChat } from './services/vibecode.js';
+import OpenAI from 'openai'; // Для генерации фото через Grok
 import { getHistory, saveMessage, getUser, addApiCost, setUserPrompt, decrementImageBalance } from './database.js';
 import { promptTemplates } from './prompts.js';
 import fs from 'fs';
@@ -12,11 +13,12 @@ const rateLimitMap = new Map();
 // Очищаем счетчик запросов раз в минуту
 setInterval(() => rateLimitMap.clear(), 60 * 1000);
 
+// OpenRouter используется ТОЛЬКО для генерации фото (Grok)
 const openai = new OpenAI({
     baseURL: 'https://openrouter.ai/api/v1',
     apiKey: process.env.OPENROUTER_API_KEY,
     defaultHeaders: {
-        'HTTP-Referer': 'https://t.me/your_bot', 
+        'HTTP-Referer': 'https://t.me/your_bot',
         'X-Title': 'Telegram AI Bot',
     }
 });
@@ -124,56 +126,32 @@ export async function generateResponse(userId, text) {
     history.forEach(msg => messages.push({ role: msg.role, content: msg.content }));
     messages.push({ role: 'user', content: text });
 
-    let modelParams = {
-        model: 'deepseek/deepseek-v4-flash',
-        messages: messages,
-        max_tokens: 1024,
-        extra_body: {
-            provider: {
-                order: ["SiliconFlow"],
-                allow_fallbacks: false
-            }
-        }
-    };
-
-    let completion;
+    // === ЗАМЕНА OPENROUTER НА VIBECODE (ZhipuAI glm-5.3-flash) ===
+    let vibecodeResponse;
     try {
-        console.log(`[AI REQUEST] Модель: ${modelParams.model}, провайдер: SiliconFlow`);
-        completion = await openai.chat.completions.create(modelParams);
+        vibecodeResponse = await vibecodeChat(messages, userId);
 
-        // Детальное логирование ответа
-        console.log(`[AI RESPONSE] Статус: OK, choices: ${completion.choices?.length || 0}`);
-
-        if (completion.choices && completion.choices.length > 0) {
-            console.log(`[AI RESPONSE] Первый choice: role=${completion.choices[0]?.message?.role}, content_length=${completion.choices[0]?.message?.content?.length || 0}`);
-        }
-
-        // Если ответ пустой, логируем полный объект
-        if (!completion.choices || completion.choices.length === 0 || !completion.choices[0]?.message?.content) {
-            console.error(`[AI ERROR] Пустой ответ от OpenRouter для юзера ${userId}`);
-            console.error(`[AI ERROR] Полный ответ:`, JSON.stringify(completion, null, 2));
-            console.error(`[AI ERROR] Model: ${modelParams.model}`);
-            console.error(`[AI ERROR] Provider order: ${JSON.stringify(modelParams.extra_body.provider.order)}`);
-
+        // Если ответ пустой (фоллбэк уже внутри vibecode.js), возвращаем его как есть
+        if (!vibecodeResponse || !vibecodeResponse.text) {
+            console.error(`[AI ERROR] vibecode.js вернул пустой объект для юзера ${userId}`);
             return {
-                text: "❌ Произошла ошибка на стороне нейросети. Модель вернула пустой ответ. Попробуйте позже.",
-                photo: null
+                text: "❌ Произошла критическая ошибка. Попробуйте позже.",
+                photo: null,
+                isVoiceRequest: false
             };
         }
-    } catch (apiError) {
-        console.error(`[AI ERROR] Ошибка запроса к OpenRouter для юзера ${userId}:`, apiError.message);
-        console.error(`[AI ERROR] Status: ${apiError.status}, Code: ${apiError.code}`);
-        if (apiError.response) {
-            console.error(`[AI ERROR] Response data:`, JSON.stringify(apiError.response.data, null, 2));
-        }
-
+    } catch (vibecodeError) {
+        console.error(`[AI ERROR] Ошибка вызова vibecode.js для юзера ${userId}:`, vibecodeError.message);
         return {
-            text: `❌ Ошибка API OpenRouter: ${apiError.message}. Попробуйте позже.`,
-            photo: null
+            text: `❌ Ошибка генерации текста: ${vibecodeError.message}. Попробуйте позже.`,
+            photo: null,
+            isVoiceRequest: false
         };
     }
 
-    const aiText = completion.choices[0].message.content;
+    // Извлекаем текст и флаг голосового запроса из ответа vibecode
+    const aiText = vibecodeResponse.text;
+    const isVoiceRequestFromAI = vibecodeResponse.isVoiceRequest;
 
     let finalAiText = aiText;
     let photoUrl = null;
@@ -296,21 +274,16 @@ export async function generateResponse(userId, text) {
 }
 // --- КОНЕЦ ПЕРЕХВАТЧИКА ---
 
-    const usage = completion.usage;
-    let cost = 0; 
-    if (usage) {
-        // Считаем стоимость только для DeepSeek
-        cost = (usage.prompt_tokens * 0.13 / 1000000) + (usage.completion_tokens * 0.28 / 1000000);
-        await addApiCost(userId, cost);
-    }
+    // ZhipuAI не возвращает usage токенов, поэтому cost = 0
+    await addApiCost(userId, 0);
 
-    await saveMessage(userId, 'user', text, 0); 
-    await saveMessage(userId, 'assistant', finalAiText, cost);
+    await saveMessage(userId, 'user', text, 0);
+    await saveMessage(userId, 'assistant', finalAiText, 0);
 
     // Логируем полный ответ бота в консоль
     const logText = finalAiText ? finalAiText.replace(/\n/g, ' ') : "[Только фото]";
     console.log(`🤖 [BOT ${userId}]: ${logText}`);
 
     // Возвращаем объект (текст + картинка + флаг голосового запроса)
-    return { text: finalAiText || "Что-то пошло не так...", photo: photoUrl, showBuyButton: showBuyButton, isVoiceRequest: isVoiceRequest };
+    return { text: finalAiText || "Что-то пошло не так...", photo: photoUrl, showBuyButton: showBuyButton, isVoiceRequest: isVoiceRequestFromAI };
 }
