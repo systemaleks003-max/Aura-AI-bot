@@ -1,5 +1,4 @@
-import { chat as vibecodeChat } from './services/vibecode.js';
-import OpenAI from 'openai'; // Для генерации фото через Grok
+import OpenAI from 'openai';
 import { getHistory, saveMessage, getUser, addApiCost, setUserPrompt, decrementImageBalance } from './database.js';
 import { promptTemplates } from './prompts.js';
 import fs from 'fs';
@@ -13,7 +12,7 @@ const rateLimitMap = new Map();
 // Очищаем счетчик запросов раз в минуту
 setInterval(() => rateLimitMap.clear(), 60 * 1000);
 
-// OpenRouter используется ТОЛЬКО для генерации фото (Grok)
+// OpenRouter для генерации текста (deepseek-chat) и фото (Grok)
 const openai = new OpenAI({
     baseURL: 'https://openrouter.ai/api/v1',
     apiKey: process.env.OPENROUTER_API_KEY,
@@ -26,7 +25,7 @@ const openai = new OpenAI({
 export async function generateResponse(userId, text) {
     const userReqs = rateLimitMap.get(userId) || 0;
     if (userReqs >= 10) { // Максимум 10 запросов в минуту
-        return { text: "⏳ Вы превысили лимит запросов (10/мин). Подождите немного.", photo: null, showBuyButton: false };
+        return { text: "⏳ Вы превысили лимит запросов (10/мин). Подождите немного.", photo: null, showBuyButton: false, isVoiceRequest: false };
     }
     rateLimitMap.set(userId, userReqs + 1);
     let showBuyButton = false;
@@ -73,7 +72,7 @@ export async function generateResponse(userId, text) {
 
    if (isPhotoRequest) {
         if (user.image_balance <= 0) {
-            return { text: "❌ Упс! У тебя закончились фото. Приобрети пакет запросов, чтобы увидеть больше!", photo: null, showBuyButton: true };
+            return { text: "❌ Упс! У тебя закончились фото. Приобрети пакет запросов, чтобы увидеть больше!", photo: null, showBuyButton: true, isVoiceRequest: false };
         }
         
         // 1. БЕСПЛАТНЫЕ ФОТО (Отдаем с сервера + текст)
@@ -90,12 +89,12 @@ export async function generateResponse(userId, text) {
                     await saveMessage(userId, 'assistant', '[Отправлено фото]', 0);
                     
                     // Возвращаем текст-заглушку вместе с бесплатным фото
-                    return { text: "Держи, малыш... 😈", photo: { source: fs.createReadStream(photoPath) } }; 
+                    return { text: "Держи, малыш... 😈", photo: { source: fs.createReadStream(photoPath) }, isVoiceRequest: false }; 
                 }
             } catch (err) {
                 console.error("Ошибка загрузки бесплатного фото:", err);
             }
-            return { text: "❌ _Ошибка сервера: бесплатные фото не найдены._", photo: null };
+            return { text: "❌ _Ошибка сервера: бесплатные фото не найдены._", photo: null, isVoiceRequest: false };
         }
         
         // 2. ПЛАТНЫЕ ФОТО (Разрешаем писать текст)
@@ -126,32 +125,35 @@ export async function generateResponse(userId, text) {
     history.forEach(msg => messages.push({ role: msg.role, content: msg.content }));
     messages.push({ role: 'user', content: text });
 
-    // === ЗАМЕНА OPENROUTER НА VIBECODE (ZhipuAI glm-5.3-flash) ===
-    let vibecodeResponse;
-    try {
-        vibecodeResponse = await vibecodeChat(messages, userId);
+    // === ГЕНЕРАЦИЯ ТЕКСТА ЧЕРЕЗ OPENROUTER (deepseek-chat) ===
+    let completion;
+    let aiText = "Прости, я немного задумалась. Что ты сказал?"; // Фоллбэк по умолчанию
 
-        // Если ответ пустой (фоллбэк уже внутри vibecode.js), возвращаем его как есть
-        if (!vibecodeResponse || !vibecodeResponse.text) {
-            console.error(`[AI ERROR] vibecode.js вернул пустой объект для юзера ${userId}`);
-            return {
-                text: "❌ Произошла критическая ошибка. Попробуйте позже.",
-                photo: null,
-                isVoiceRequest: false
-            };
+    try {
+        completion = await openai.chat.completions.create({
+            model: 'deepseek/deepseek-chat', // Стабильная модель без цензуры
+            messages: messages,
+            temperature: 0.85,
+            max_tokens: 800
+        });
+
+        const rawResponse = completion.choices[0]?.message?.content;
+
+        if (!rawResponse || rawResponse.trim() === '') {
+            console.warn(`[AI WARNING] OpenRouter вернул пустой ответ для юзера ${userId}. Используем фоллбэк.`);
+            aiText = "Прости, я немного задумалась. Что ты сказал?";
+        } else {
+            aiText = rawResponse.trim();
         }
-    } catch (vibecodeError) {
-        console.error(`[AI ERROR] Ошибка вызова vibecode.js для юзера ${userId}:`, vibecodeError.message);
-        return {
-            text: `❌ Ошибка генерации текста: ${vibecodeError.message}. Попробуйте позже.`,
-            photo: null,
-            isVoiceRequest: false
-        };
+
+        console.log(`[OPENROUTER] Успешный ответ для юзера ${userId}: ${aiText.substring(0, 100)}...`);
+
+    } catch (openrouterError) {
+        console.error(`[AI ERROR] Ошибка вызова OpenRouter для юзера ${userId}:`, openrouterError.message);
+        aiText = "Прости, я немного задумалась. Что ты сказал?";
     }
 
-    // Извлекаем текст и флаг голосового запроса из ответа vibecode
-    const aiText = vibecodeResponse.text;
-    const isVoiceRequestFromAI = vibecodeResponse.isVoiceRequest;
+    const isVoiceRequestFromAI = isVoiceRequest; // Определяется выше через regex
 
     let finalAiText = aiText;
     let photoUrl = null;
