@@ -80,8 +80,9 @@ export function startWorker(bot) {
                 }
 
                 // 20% шанс отправки голосового сообщения (только для коротких текстов)
-                if (Math.random() < 0.2 && response.text.length < 300) {
+                if (true) {
                     try {
+                        console.log('[VOICE TEST] Генерация голоса...');
                         await bot.telegram.sendChatAction(chatId, 'record_voice');
                         const voiceFile = await generateVoice(response.text);
 
