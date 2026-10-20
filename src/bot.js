@@ -21,6 +21,16 @@ import { setupProfile } from './handlers/profile.js';
 import { setupAi } from './handlers/ai_menu.js';
 import { cancelSilence } from './silence.js';
 
+// Глобальные перехватчики ошибок
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[Unhandled Rejection]', reason);
+    console.error('Promise:', promise);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('[Uncaught Exception]', error);
+});
+
 const requiredEnvs = ['BOT_TOKEN', 'ADMIN_ID', 'OPENROUTER_API_KEY', 'DATABASE_URL'];
 for (const envName of requiredEnvs) {
     if (!process.env[envName]) {
@@ -518,32 +528,51 @@ bot.action(/mu_open_(\d+)/, async (ctx) => {
 bot.action('ignore', async (ctx) => ctx.answerCbQuery());
 
 async function renderUserManagePanel(ctx, targetId) {
-    const tUser = await getUser(targetId);
-    if (!tUser) return ctx.reply("Пользователь не найден.");
+    // Защита от устаревших кнопок без ID
+    if (!targetId || isNaN(parseInt(targetId, 10))) {
+        console.error('[renderUserManagePanel] Недопустимый targetId:', targetId);
+        if (ctx.answerCbQuery) {
+            await ctx.answerCbQuery('❌ Ошибка: устаревшая кнопка. Откройте карточку пользователя заново.', { show_alert: true });
+        }
+        return;
+    }
 
-    const nameStr = tUser.first_name ? tUser.first_name : 'Неизвестно';
-    const userStr = tUser.username ? `@${tUser.username}` : 'Нет';
+    try {
+        const tUser = await getUser(targetId);
+        if (!tUser) {
+            await ctx.answerCbQuery('❌ Пользователь не найден');
+            return;
+        }
 
-    const msg = `👤 <b>Карточка юзера:</b> <code>${targetId}</code>\n` +
-                `📝 <b>Имя:</b> ${nameStr} (${userStr})\n\n` +
-                `💬 <b>Баланс сообщений:</b> ${tUser.text_balance || 0}\n` +
-                `📸 <b>Баланс фото:</b> ${tUser.image_balance || 0}\n` +
-                `💎 <b>Статус (Has Purchased):</b> ${tUser.has_purchased ? '✅ Да' : '❌ Нет'}\n` +
-                `🚫 <b>Блокировка:</b> ${tUser.is_blocked ? 'Заблокирован' : 'Активен'}`;
+        const nameStr = tUser.first_name ? tUser.first_name : 'Неизвестно';
+        const userStr = tUser.username ? `@${tUser.username}` : 'Нет';
 
-    const kb = Markup.inlineKeyboard([
-        [Markup.button.callback('💬 Ред. Сообщения', `mu_edit_text:${targetId}`), Markup.button.callback('📸 Ред. Фото', `mu_edit_img:${targetId}`)],
-        [Markup.button.callback('📦 Выдать пакет', `mu_set_package:${targetId}`)],
-        [Markup.button.callback('👑 Выдать VIP', `mu_give_vip:${targetId}`), Markup.button.callback('💳 Платежи', `mu_payments:${targetId}`)],
-        [Markup.button.callback(tUser.is_blocked ? '✅ Разблокировать' : '🚫 Заблокировать', `mu_block:${targetId}`)],
-        [Markup.button.callback('✉️ Написать', `mu_msg:${targetId}`)],
-        [Markup.button.callback('🔙 Назад', 'admin_back')]
-    ]);
+        const msg = `👤 <b>Карточка юзера:</b> <code>${targetId}</code>\n` +
+                    `📝 <b>Имя:</b> ${nameStr} (${userStr})\n\n` +
+                    `💬 <b>Баланс сообщений:</b> ${tUser.text_balance || 0}\n` +
+                    `📸 <b>Баланс фото:</b> ${tUser.image_balance || 0}\n` +
+                    `💎 <b>Статус (Has Purchased):</b> ${tUser.has_purchased ? '✅ Да' : '❌ Нет'}\n` +
+                    `🚫 <b>Блокировка:</b> ${tUser.is_blocked ? 'Заблокирован' : 'Активен'}`;
 
-    if (ctx.callbackQuery) {
-        return ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: kb.reply_markup }).catch(() => {});
-    } else {
-        return ctx.reply(msg, { parse_mode: 'HTML', reply_markup: kb.reply_markup });
+        const kb = Markup.inlineKeyboard([
+            [Markup.button.callback('💬 Ред. Сообщения', `mu_edit_text:${targetId}`), Markup.button.callback('📸 Ред. Фото', `mu_edit_img:${targetId}`)],
+            [Markup.button.callback('📦 Выдать пакет', `mu_set_package:${targetId}`)],
+            [Markup.button.callback('👑 Выдать VIP', `mu_give_vip:${targetId}`), Markup.button.callback('💳 Платежи', `mu_payments:${targetId}`)],
+            [Markup.button.callback(tUser.is_blocked ? '✅ Разблокировать' : '🚫 Заблокировать', `mu_block:${targetId}`)],
+            [Markup.button.callback('✉️ Написать', `mu_msg:${targetId}`)],
+            [Markup.button.callback('🔙 Назад', 'admin_back')]
+        ]);
+
+        if (ctx.callbackQuery) {
+            return ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: kb.reply_markup }).catch(() => {});
+        } else {
+            return ctx.reply(msg, { parse_mode: 'HTML', reply_markup: kb.reply_markup });
+        }
+    } catch (error) {
+        console.error('[renderUserManagePanel ERROR]', error);
+        if (ctx.answerCbQuery) {
+            await ctx.answerCbQuery(`❌ Ошибка загрузки карточки: ${error.message}`, { show_alert: true });
+        }
     }
 }
 
@@ -560,43 +589,71 @@ bot.action('mu_start', async (ctx) => {
 
 // --- ОБРАБОТЧИКИ КАРТОЧКИ ПОЛЬЗОВАТЕЛЯ ---
 bot.action(/^mu_edit_text:(.+)$/, async (ctx) => {
-    const targetId = ctx.match[1];
-    if (!targetId) return ctx.answerCbQuery('Ошибка: не передан ID пользователя');
-    adminTargetUser[ctx.from.id] = parseInt(targetId, 10);
-    userState[ctx.from.id] = 'WAITING_MU_TEXT';
-    await ctx.answerCbQuery();
-    return ctx.reply("💬 Введите новое количество текстов (число):", { reply_markup: { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'cancel_input' }]] } });
+    try {
+        const targetId = ctx.match[1];
+        if (!targetId || targetId === 'undefined' || isNaN(parseInt(targetId, 10))) {
+            return ctx.answerCbQuery('❌ Ошибка: устаревшая кнопка. Откройте карточку пользователя заново.', { show_alert: true });
+        }
+        adminTargetUser[ctx.from.id] = parseInt(targetId, 10);
+        userState[ctx.from.id] = 'WAITING_MU_TEXT';
+        await ctx.answerCbQuery();
+        return ctx.reply("💬 Введите новое количество текстов (число):", { reply_markup: { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'cancel_input' }]] } });
+    } catch (error) {
+        console.error('[mu_edit_text ERROR]', error);
+        return ctx.answerCbQuery(`❌ Ошибка: ${error.message}`, { show_alert: true });
+    }
 });
 
 bot.action(/^mu_edit_img:(.+)$/, async (ctx) => {
-    const targetId = ctx.match[1];
-    if (!targetId) return ctx.answerCbQuery('Ошибка: не передан ID пользователя');
-    adminTargetUser[ctx.from.id] = parseInt(targetId, 10);
-    userState[ctx.from.id] = 'WAITING_MU_IMG';
-    await ctx.answerCbQuery();
-    return ctx.reply("📸 Введите новое количество фото (число):", { reply_markup: { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'cancel_input' }]] } });
+    try {
+        const targetId = ctx.match[1];
+        if (!targetId || targetId === 'undefined' || isNaN(parseInt(targetId, 10))) {
+            return ctx.answerCbQuery('❌ Ошибка: устаревшая кнопка. Откройте карточку пользователя заново.', { show_alert: true });
+        }
+        adminTargetUser[ctx.from.id] = parseInt(targetId, 10);
+        userState[ctx.from.id] = 'WAITING_MU_IMG';
+        await ctx.answerCbQuery();
+        return ctx.reply("📸 Введите новое количество фото (число):", { reply_markup: { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'cancel_input' }]] } });
+    } catch (error) {
+        console.error('[mu_edit_img ERROR]', error);
+        return ctx.answerCbQuery(`❌ Ошибка: ${error.message}`, { show_alert: true });
+    }
 });
 
 // Меню выдачи пакета из админки
 bot.action(/^mu_set_package:(.+)$/, async (ctx) => {
-    const targetId = ctx.match[1];
-    if (!targetId) return ctx.answerCbQuery('Ошибка: не передан ID пользователя');
-    adminTargetUser[ctx.from.id] = parseInt(targetId, 10);
-    const kb = Markup.inlineKeyboard([
-        [Markup.button.callback('📦 Lite (50/5)', 'mu_give_pkg_50_5')],
-        [Markup.button.callback('💼 Medium (200/20)', 'mu_give_pkg_200_20')],
-        [Markup.button.callback('🔥 Hard (500/50)', 'mu_give_pkg_500_50')],
-        [Markup.button.callback('👑 Full (1000/100)', 'mu_give_pkg_1000_100')],
-        [Markup.button.callback('🔙 Назад', `mu_back_to_user:${targetId}`)]
-    ]);
-    return ctx.editMessageText("📦 Выберите пакет для зачисления этому юзеру:", { reply_markup: kb.reply_markup });
+    try {
+        const targetId = ctx.match[1];
+        if (!targetId || targetId === 'undefined' || isNaN(parseInt(targetId, 10))) {
+            return ctx.answerCbQuery('❌ Ошибка: устаревшая кнопка. Откройте карточку пользователя заново.', { show_alert: true });
+        }
+        adminTargetUser[ctx.from.id] = parseInt(targetId, 10);
+        const kb = Markup.inlineKeyboard([
+            [Markup.button.callback('📦 Lite (50/5)', 'mu_give_pkg_50_5')],
+            [Markup.button.callback('💼 Medium (200/20)', 'mu_give_pkg_200_20')],
+            [Markup.button.callback('🔥 Hard (500/50)', 'mu_give_pkg_500_50')],
+            [Markup.button.callback('👑 Full (1000/100)', 'mu_give_pkg_1000_100')],
+            [Markup.button.callback('🔙 Назад', `mu_back_to_user:${targetId}`)]
+        ]);
+        return ctx.editMessageText("📦 Выберите пакет для зачисления этому юзеру:", { reply_markup: kb.reply_markup });
+    } catch (error) {
+        console.error('[mu_set_package ERROR]', error);
+        return ctx.answerCbQuery(`❌ Ошибка: ${error.message}`, { show_alert: true });
+    }
 });
 
 // Возврат в карточку
 bot.action(/^mu_back_to_user:(.+)$/, async (ctx) => {
-    const targetId = parseInt(ctx.match[1], 10);
-    if (!targetId) return ctx.answerCbQuery('Ошибка: не передан ID пользователя');
-    return renderUserManagePanel(ctx, targetId);
+    try {
+        const targetId = parseInt(ctx.match[1], 10);
+        if (!targetId || isNaN(targetId)) {
+            return ctx.answerCbQuery('❌ Ошибка: устаревшая кнопка. Откройте карточку пользователя заново.', { show_alert: true });
+        }
+        return renderUserManagePanel(ctx, targetId);
+    } catch (error) {
+        console.error('[mu_back_to_user ERROR]', error);
+        return ctx.answerCbQuery(`❌ Ошибка: ${error.message}`, { show_alert: true });
+    }
 });
 
 // Непосредственно выдача пакета админом
@@ -655,12 +712,19 @@ bot.action(/^mu_payments:(.+)$/, async (ctx) => {
 });
 
 bot.action(/^mu_msg:(.+)$/, async (ctx) => {
-    const targetId = ctx.match[1];
-    if (!targetId) return ctx.answerCbQuery('Ошибка: не передан ID пользователя');
-    adminTargetUser[ctx.from.id] = parseInt(targetId, 10);
-    userState[ctx.from.id] = 'WAITING_MU_MSG';
-    await ctx.answerCbQuery();
-    return ctx.reply("Введите текст сообщения, которое получит этот пользователь:", { reply_markup: { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'cancel_input' }]] } });
+    try {
+        const targetId = ctx.match[1];
+        if (!targetId || targetId === 'undefined' || isNaN(parseInt(targetId, 10))) {
+            return ctx.answerCbQuery('❌ Ошибка: устаревшая кнопка. Откройте карточку пользователя заново.', { show_alert: true });
+        }
+        adminTargetUser[ctx.from.id] = parseInt(targetId, 10);
+        userState[ctx.from.id] = 'WAITING_MU_MSG';
+        await ctx.answerCbQuery();
+        return ctx.reply("Введите текст сообщения, которое получит этот пользователь:", { reply_markup: { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'cancel_input' }]] } });
+    } catch (error) {
+        console.error('[mu_msg ERROR]', error);
+        return ctx.answerCbQuery(`❌ Ошибка: ${error.message}`, { show_alert: true });
+    }
 });
 
 bot.action(/^mu_block:(.+)$/, async (ctx) => {
@@ -1220,7 +1284,8 @@ bot.on('photo', async (ctx) => {
 });
 
 bot.on('text', async (ctx) => {
-  cancelSilence(ctx.from.id);
+  try {
+    cancelSilence(ctx.from.id);
     const userId = ctx.from.id;
     const text = ctx.message.text;
 
@@ -1489,6 +1554,14 @@ bot.on('text', async (ctx) => {
 
     // 2. Передаем ID временного сообщения в очередь, чтобы потом его отредактировать
     await aiQueue.add('ask-ai', { userId, text, chatId: ctx.chat.id, shouldDecrement, tempMsgId: tempMsg.message_id });
+  } catch (error) {
+    console.error('[bot.on(text) ERROR]', error);
+    try {
+      await ctx.reply('❌ Произошла ошибка при обработке запроса. Попробуйте ещё раз.');
+    } catch (replyError) {
+      console.error('[bot.on(text) REPLY ERROR]', replyError);
+    }
+  }
 });
 
 
@@ -1574,15 +1647,6 @@ startAutoFunnels();
 
 startWorker(bot);
 startBroadcastWorker(bot);
-
-// Глобальные обработчики для предотвращения молчаливого падения процесса
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-process.on('uncaughtException', (error) => {
-    console.error('Uncaught Exception thrown:', error);
-    process.exit(1);
-});
 
 bot.launch().then(() => console.log('🚀 Бот успешно запущен и подключен к Telegram!'));
 
