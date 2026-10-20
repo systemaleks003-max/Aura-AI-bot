@@ -4,7 +4,7 @@ import { resetSilenceTimer } from './silence.js';
 import { decrementFreeRequest, checkAndDeductVoiceLimit } from './database.js';
 import fs from 'fs';
 import { generateVoice } from './services/tts.js';
-import { humanReply } from './utils/human.js';
+import { humanReply, stripMarkdown } from './utils/human.js';
 
 // Парсим URL из .env и жестко задаем IPv4 (family: 4)
 const redisUrl = new URL(process.env.REDIS_URL);
@@ -15,6 +15,38 @@ const connection = {
 };
 
 export const aiQueue = new Queue('ai-requests', { connection });
+
+/**
+ * Безопасная отправка текста с fallback на plain text при ошибке парсинга Markdown
+ */
+async function safeHumanReply(bot, chatId, text, extraOptions) {
+    try {
+        await humanReply({
+            reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions),
+            sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action)
+        }, text);
+    } catch (error) {
+        // Если Telegram не может распарсить Markdown (незакрытые теги)
+        if (error.description?.includes("can't parse entities") || error.message?.includes("can't parse entities")) {
+            console.warn('[MARKDOWN ERROR] Незакрытые теги, отправляю без форматирования:', error.message);
+
+            // Убираем Markdown и отправляем как plain text
+            const cleanText = stripMarkdown(text);
+
+            // Создаём новые опции без parse_mode, но сохраняем reply_markup (кнопки)
+            const plainOptions = { ...extraOptions };
+            delete plainOptions.parse_mode;
+
+            await humanReply({
+                reply: (text) => bot.telegram.sendMessage(chatId, text, plainOptions),
+                sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action)
+            }, cleanText);
+        } else {
+            // Другая ошибка — пробрасываем дальше
+            throw error;
+        }
+    }
+}
 
 export function startWorker(bot) {
     new Worker('ai-requests', async job => {
@@ -97,14 +129,14 @@ export function startWorker(bot) {
                             } else {
                                 // Если голос не сгенерировался, отправляем текстом
                                 const fallbackText = response.text + "\n\n❌ _К сожалению, не удалось сгенерировать голосовое. Попробуй позже._";
-                                await humanReply({ reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions), sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action) }, fallbackText);
+                                await safeHumanReply(bot, chatId, fallbackText, extraOptions);
                                 resetSilenceTimer(userId, bot, chatId);
                             }
                         } catch (voiceError) {
                             console.error('[VOICE ERROR]', voiceError.message);
                             // Fallback: отправляем текстом
                             const fallbackText = response.text + "\n\n❌ _Произошла ошибка при генерации голоса._";
-                            await humanReply({ reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions), sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action) }, fallbackText);
+                            await safeHumanReply(bot, chatId, fallbackText, extraOptions);
                             resetSilenceTimer(userId, bot, chatId);
                         }
                     } else {
@@ -117,12 +149,12 @@ export function startWorker(bot) {
                             finalText += "\n\n⚠️ _Текст слишком длинный для голосового (макс. 300 символов)._";
                         }
 
-                        await humanReply({ reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions), sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action) }, finalText);
+                        await safeHumanReply(bot, chatId, finalText, extraOptions);
                         resetSilenceTimer(userId, bot, chatId);
                     }
                 } else {
                     // Обычное текстовое сообщение без голоса
-                    await humanReply({ reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions), sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action) }, response.text);
+                    await safeHumanReply(bot, chatId, response.text, extraOptions);
                     resetSilenceTimer(userId, bot, chatId);
                 }
             }

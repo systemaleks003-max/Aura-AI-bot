@@ -1,5 +1,12 @@
 export const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
+/**
+ * Удаляет все Markdown-символы из текста
+ */
+export function stripMarkdown(text) {
+  return text.replace(/[*_`\[\]~|>]/g, '');
+}
+
 export async function humanReply(ctx, text) {
   // Имитируем прочтение
   await delay(Math.random() * 1000 + 500);
