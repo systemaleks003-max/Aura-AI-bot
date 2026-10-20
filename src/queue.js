@@ -1,7 +1,7 @@
 import { Queue, Worker } from 'bullmq';
 import { generateResponse } from './ai.js';
 import { resetSilenceTimer } from './silence.js';
-import { decrementFreeRequest, checkAndDeductVoiceLimit } from './database.js';
+import { decrementFreeRequest, checkVoiceLimit, deductVoiceLimit } from './database.js';
 import fs from 'fs';
 import { generateVoice } from './services/tts.js';
 import { humanReply, stripMarkdown } from './utils/human.js';
@@ -113,31 +113,35 @@ export function startWorker(bot) {
 
                 // Если пользователь явно попросил голосовое сообщение
                 if (response.isVoiceRequest) {
-                    const canSendVoice = await checkAndDeductVoiceLimit(userId);
+                    // Сначала ТОЛЬКО проверяем лимит, НЕ списываем
+                    const hasVoiceLimit = await checkVoiceLimit(userId);
 
                     // Очищаем текст от Markdown-символов для корректного подсчёта длины
                     const cleanTextForCheck = stripMarkdown(response.text);
 
-                    if (canSendVoice && cleanTextForCheck.length < 300) {
+                    if (hasVoiceLimit && cleanTextForCheck.length < 300) {
                         try {
                             console.log(`[VOICE] Генерация голосового для юзера ${userId}...`);
                             await bot.telegram.sendChatAction(chatId, 'record_voice');
                             const voiceFile = await generateVoice(response.text);
 
                             if (voiceFile && fs.existsSync(voiceFile)) {
+                                // ✅ Генерация успешна — ТЕПЕРЬ списываем лимит
+                                await deductVoiceLimit(userId);
+
                                 await bot.telegram.sendVoice(chatId, { source: voiceFile });
                                 fs.unlinkSync(voiceFile); // Удаляем временный файл
                                 console.log(`[VOICE] Успешно отправлено юзеру ${userId}`);
                                 resetSilenceTimer(userId, bot, chatId);
                             } else {
-                                // Если голос не сгенерировался, отправляем текстом
+                                // ❌ Голос не сгенерировался — НЕ списываем лимит
                                 const fallbackText = response.text + "\n\n❌ _К сожалению, не удалось сгенерировать голосовое. Попробуй позже._";
                                 await safeHumanReply(bot, chatId, fallbackText, extraOptions);
                                 resetSilenceTimer(userId, bot, chatId);
                             }
                         } catch (voiceError) {
                             console.error('[VOICE ERROR]', voiceError.message);
-                            // Fallback: отправляем текстом
+                            // ❌ Ошибка генерации — НЕ списываем лимит
                             const fallbackText = response.text + "\n\n❌ _Произошла ошибка при генерации голоса._";
                             await safeHumanReply(bot, chatId, fallbackText, extraOptions);
                             resetSilenceTimer(userId, bot, chatId);
@@ -146,7 +150,7 @@ export function startWorker(bot) {
                         // Лимит закончился или текст слишком длинный
                         let finalText = response.text;
 
-                        if (!canSendVoice) {
+                        if (!hasVoiceLimit) {
                             finalText += "\n\n🔊 _Лимит бесплатных голосовых исчерпан (3/день). Купи кристаллы в профиле, чтобы я продолжала с тобой говорить голосом_ 💎";
                         } else if (cleanTextForCheck.length >= 300) {
                             finalText += "\n\n⚠️ _Текст слишком длинный для голосового (макс. 300 символов)._";

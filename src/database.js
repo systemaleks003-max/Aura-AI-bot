@@ -569,6 +569,81 @@ export async function logPaymentFailure(errorText) {
  * @param {number} userId - Telegram ID пользователя
  * @returns {Promise<boolean>} true если лимит доступен, false если закончился
  */
+// Проверка лимита голосовых (без списания)
+export async function checkVoiceLimit(userId) {
+    const client = await pool.connect();
+    try {
+        const userRes = await client.query(
+            'SELECT voice_free_count, crystals FROM users WHERE telegram_id = $1',
+            [userId]
+        );
+
+        if (userRes.rows.length === 0) {
+            return false;
+        }
+
+        const { voice_free_count, crystals } = userRes.rows[0];
+
+        // Есть лимит, если бесплатных меньше 3 или есть кристаллы
+        return voice_free_count < 3 || crystals >= 1;
+    } catch (e) {
+        console.error("Ошибка в checkVoiceLimit:", e);
+        return false;
+    } finally {
+        client.release();
+    }
+}
+
+// Списание лимита голосовых (после успешной генерации)
+export async function deductVoiceLimit(userId) {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const userRes = await client.query(
+            'SELECT voice_free_count, crystals FROM users WHERE telegram_id = $1 FOR UPDATE',
+            [userId]
+        );
+
+        if (userRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return false;
+        }
+
+        const { voice_free_count, crystals } = userRes.rows[0];
+
+        // Если бесплатных меньше 3 — списываем с бесплатных
+        if (voice_free_count < 3) {
+            await client.query(
+                'UPDATE users SET voice_free_count = voice_free_count + 1 WHERE telegram_id = $1',
+                [userId]
+            );
+            await client.query('COMMIT');
+            return true;
+        }
+
+        // Если бесплатные закончились, но есть кристаллы
+        if (crystals >= 1) {
+            await client.query(
+                'UPDATE users SET crystals = crystals - 1 WHERE telegram_id = $1',
+                [userId]
+            );
+            await client.query('COMMIT');
+            return true;
+        }
+
+        // Лимиты закончились
+        await client.query('ROLLBACK');
+        return false;
+    } catch (e) {
+        await client.query('ROLLBACK');
+        console.error("Ошибка в deductVoiceLimit:", e);
+        return false;
+    } finally {
+        client.release();
+    }
+}
+
 export async function checkAndDeductVoiceLimit(userId) {
     const client = await pool.connect();
     try {
