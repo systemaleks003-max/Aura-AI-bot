@@ -1,5 +1,6 @@
 .env
-.env*
+.env.local
+.env.production
 *.save
 node_modules/
 temp_voice_*.webm
