@@ -52,6 +52,8 @@ async function initDB() {
         await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS has_received_24h_promo BOOLEAN DEFAULT FALSE');
         await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS has_received_store_promo BOOLEAN DEFAULT FALSE');
         await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_api_cost NUMERIC DEFAULT 0');
+        await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS voice_free_count INT DEFAULT 0');
+        await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS crystals INT DEFAULT 0');
 
         console.log('✅ База данных успешно инициализирована');
     } catch (e) {
@@ -558,4 +560,72 @@ export async function closeDB() {
 export async function logPaymentFailure(errorText) {
     await pool.query('CREATE TABLE IF NOT EXISTS payment_failures (id SERIAL PRIMARY KEY, error_text TEXT, created_at TIMESTAMP DEFAULT NOW())');
     await pool.query('INSERT INTO payment_failures (error_text) VALUES ($1)', [errorText]);
+}
+
+// === СИСТЕМА ГОЛОСОВЫХ СООБЩЕНИЙ ===
+
+/**
+ * Проверяет и списывает лимит голосовых сообщений
+ * @param {number} userId - Telegram ID пользователя
+ * @returns {Promise<boolean>} true если лимит доступен, false если закончился
+ */
+export async function checkAndDeductVoiceLimit(userId) {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const userRes = await client.query(
+            'SELECT voice_free_count, crystals FROM users WHERE telegram_id = $1 FOR UPDATE',
+            [userId]
+        );
+
+        if (userRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return false;
+        }
+
+        const { voice_free_count, crystals } = userRes.rows[0];
+
+        // Если бесплатных меньше 3 — списываем с бесплатных
+        if (voice_free_count < 3) {
+            await client.query(
+                'UPDATE users SET voice_free_count = voice_free_count + 1 WHERE telegram_id = $1',
+                [userId]
+            );
+            await client.query('COMMIT');
+            return true;
+        }
+
+        // Если бесплатные закончились, но есть кристаллы
+        if (crystals >= 1) {
+            await client.query(
+                'UPDATE users SET crystals = crystals - 1 WHERE telegram_id = $1',
+                [userId]
+            );
+            await client.query('COMMIT');
+            return true;
+        }
+
+        // Лимиты закончились
+        await client.query('ROLLBACK');
+        return false;
+    } catch (e) {
+        await client.query('ROLLBACK');
+        console.error("Ошибка в checkAndDeductVoiceLimit:", e);
+        return false;
+    } finally {
+        client.release();
+    }
+}
+
+/**
+ * Пополняет баланс кристаллов пользователю
+ * @param {number} userId - Telegram ID пользователя
+ * @param {number} amount - Количество кристаллов для добавления
+ */
+export async function addCrystals(userId, amount) {
+    await pool.query(
+        'UPDATE users SET crystals = GREATEST(crystals, 0) + $1 WHERE telegram_id = $2',
+        [amount, userId]
+    );
 }

@@ -1,7 +1,7 @@
 import { Queue, Worker } from 'bullmq';
 import { generateResponse } from './ai.js';
 import { resetSilenceTimer } from './silence.js';
-import { decrementFreeRequest } from './database.js';
+import { decrementFreeRequest, checkAndDeductVoiceLimit } from './database.js';
 import fs from 'fs';
 import { generateVoice } from './services/tts.js';
 import { humanReply } from './utils/human.js';
@@ -79,10 +79,12 @@ export function startWorker(bot) {
                     };
                 }
 
-                // 20% шанс отправки голосового сообщения (только для коротких текстов)
-                if (true) {
+                // Проверка лимита голосовых сообщений
+                const canSendVoice = await checkAndDeductVoiceLimit(userId);
+
+                if (canSendVoice && response.text.length < 300) {
                     try {
-                        console.log('[VOICE TEST] Генерация голоса...');
+                        console.log('[VOICE] Генерация голосового сообщения...');
                         await bot.telegram.sendChatAction(chatId, 'record_voice');
                         const voiceFile = await generateVoice(response.text);
 
@@ -102,8 +104,15 @@ export function startWorker(bot) {
                         resetSilenceTimer(userId, bot, chatId);
                     }
                 } else {
-                    // Отправляем текстом с имитацией живого общения
-                    await humanReply({ reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions), sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action) }, response.text);
+                    // Лимит закончился или текст слишком длинный — отправляем текстом
+                    let finalText = response.text;
+
+                    // Если лимит исчерпан — добавляем уведомление
+                    if (!canSendVoice) {
+                        finalText += "\n\n🔊 _Лимит бесплатных голосовых исчерпан. Пополни баланс кристаллов в профиле, чтобы я продолжала говорить_ 💎";
+                    }
+
+                    await humanReply({ reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions), sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action) }, finalText);
                     resetSilenceTimer(userId, bot, chatId);
                 }
             }

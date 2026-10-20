@@ -110,16 +110,22 @@ export async function showProfile(ctx, userState, themeConfig) {
     const progressBar = theme.fill.repeat(fillCount) + theme.empty.repeat(10 - fillCount);
     const levelText = freeMode ? 'MAX' : `${percent}%`;
 
+    // Подсчет оставшихся бесплатных голосовых
+    const freeVoicesLeft = Math.max(0, 3 - (user.voice_free_count || 0));
+
     const msg = `👤 *Твой профиль*\n\n` +
                 `🔑 Твой ID: \`${userId}\`\n\n` +
                 `*${theme.title}:* ${levelText}\n` +
                 `[${progressBar}]\n` +
                 `💬 Статус: *${statusText}*\n\n` +
                 `✉️ Сообщений: *${user.text_balance}*\n` +
-                `📸 Фото: *${user.image_balance}*`;
+                `📸 Фото: *${user.image_balance}*\n\n` +
+                `🎙 Бесплатных голосовых: *${freeVoicesLeft}*\n` +
+                `💎 Баланс кристаллов: *${user.crystals || 0}*`;
 
     const kb = Markup.inlineKeyboard([
         [Markup.button.callback('⭐️ Пополнить баланс', 'trigger_buy')],
+        [Markup.button.callback('💎 Купить 10 кристаллов (50 ⭐️)', 'buy_crystals')],
         [Markup.button.callback('🎁 Ежедневный бонус', 'claim_daily_bonus')],
         [Markup.button.callback('🎫 Ввести промокод', 'enter_promocode')]
     ]);

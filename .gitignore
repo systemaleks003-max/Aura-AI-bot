@@ -3,3 +3,4 @@
 *.save
 node_modules/
 temp_voice_*.webm
+temp_voice_*.mp3

@@ -6,7 +6,7 @@ import {
     getUsersTotal, getUsersPage, grantPackage, updateUserMeta,
     processPlategaPayment, updateLastActive, setStoreOpened, getUsersForRetargeting24h, mark24hPromoSent, getUsersForRetargetingStore, markStorePromoSent,
     createPromocode, activatePromocode, getPaymentHistory,
-    getAllPromocodes, getPromocodeById, togglePromoStatus, togglePromoNewUsersOnly, deletePromocode, updatePromoField, getUsersForBonusNotify, markBonusNotified, getDailyReport
+    getAllPromocodes, getPromocodeById, togglePromoStatus, togglePromoNewUsersOnly, deletePromocode, updatePromoField, getUsersForBonusNotify, markBonusNotified, getDailyReport, addCrystals
 } from './database.js';
 import { createPlategaInvoice, checkPlategaInvoice } from './platega.js';
 import { createCryptoInvoice, getCryptoInvoice } from './cryptobot.js';
@@ -839,6 +839,25 @@ bot.action('trigger_buy', async (ctx) => {
     return sendInvoiceHelper(ctx);
 });
 
+// Обработчик покупки кристаллов
+bot.action('buy_crystals', async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+
+    try {
+        await ctx.replyWithInvoice({
+            title: 'Покупка кристаллов',
+            description: '10 кристаллов для голосовых сообщений',
+            payload: 'buy_10_crystals',
+            provider_token: '', // Для Telegram Stars оставляем пустым
+            currency: 'XTR',
+            prices: [{ label: '10 кристаллов', amount: 50 }] // 50 Stars
+        });
+    } catch (e) {
+        console.error('[CRYSTALS BUY ERROR]:', e);
+        await ctx.reply('❌ Ошибка создания счета. Попробуйте позже.');
+    }
+});
+
 // 1. Выбор метода оплаты (с пересчетом %)
 bot.action(/select_pay_([a-z0-9]+)/, async (ctx) => {
     try {
@@ -1072,6 +1091,20 @@ bot.on('successful_payment', async (ctx) => {
     const amount = ctx.message.successful_payment.total_amount;
     const currency = ctx.message.successful_payment.currency;
 
+    // Обработка покупки кристаллов
+    if (payload === 'buy_10_crystals') {
+        await addCrystals(userId, 10);
+        await ctx.reply(
+            `💎 *Покупка успешна!*\n\n` +
+            `Тебе начислено *10 кристаллов*.\n` +
+            `Теперь ты можешь получать мои голосовые сообщения! 🎙\n\n` +
+            `_1 кристалл = 1 голосовое сообщение_`,
+            { parse_mode: 'Markdown' }
+        );
+        return;
+    }
+
+    // Обработка покупки пакетов (существующая логика)
     await clearHistory(userId);
 
     let user = await getUser(userId);
