@@ -63,7 +63,7 @@ export function startWorker(bot) {
                     }
                 }
             } else {
-                // Если фото нет, отправляем текст (с шансом голоса)
+                // Если фото нет, проверяем, нужно ли отправить голос
 
                 // Удаляем временное сообщение "Печатаю ответ..."
                 if (tempMsgId) {
@@ -79,40 +79,50 @@ export function startWorker(bot) {
                     };
                 }
 
-                // Проверка лимита голосовых сообщений
-                const canSendVoice = await checkAndDeductVoiceLimit(userId);
+                // Если пользователь явно попросил голосовое сообщение
+                if (response.isVoiceRequest) {
+                    const canSendVoice = await checkAndDeductVoiceLimit(userId);
 
-                if (canSendVoice && response.text.length < 300) {
-                    try {
-                        console.log('[VOICE] Генерация голосового сообщения...');
-                        await bot.telegram.sendChatAction(chatId, 'record_voice');
-                        const voiceFile = await generateVoice(response.text);
+                    if (canSendVoice && response.text.length < 300) {
+                        try {
+                            console.log(`[VOICE] Генерация голосового для юзера ${userId}...`);
+                            await bot.telegram.sendChatAction(chatId, 'record_voice');
+                            const voiceFile = await generateVoice(response.text);
 
-                        if (voiceFile && fs.existsSync(voiceFile)) {
-                            await bot.telegram.sendVoice(chatId, { source: voiceFile });
-                            fs.unlinkSync(voiceFile); // Удаляем временный файл
-                            resetSilenceTimer(userId, bot, chatId);
-                        } else {
-                            // Если голос не сгенерировался, отправляем текстом с имитацией
-                            await humanReply({ reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions), sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action) }, response.text);
+                            if (voiceFile && fs.existsSync(voiceFile)) {
+                                await bot.telegram.sendVoice(chatId, { source: voiceFile });
+                                fs.unlinkSync(voiceFile); // Удаляем временный файл
+                                console.log(`[VOICE] Успешно отправлено юзеру ${userId}`);
+                                resetSilenceTimer(userId, bot, chatId);
+                            } else {
+                                // Если голос не сгенерировался, отправляем текстом
+                                const fallbackText = response.text + "\n\n❌ _К сожалению, не удалось сгенерировать голосовое. Попробуй позже._";
+                                await humanReply({ reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions), sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action) }, fallbackText);
+                                resetSilenceTimer(userId, bot, chatId);
+                            }
+                        } catch (voiceError) {
+                            console.error('[VOICE ERROR]', voiceError.message);
+                            // Fallback: отправляем текстом
+                            const fallbackText = response.text + "\n\n❌ _Произошла ошибка при генерации голоса._";
+                            await humanReply({ reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions), sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action) }, fallbackText);
                             resetSilenceTimer(userId, bot, chatId);
                         }
-                    } catch (voiceError) {
-                        console.error('[VOICE ERROR]', voiceError.message);
-                        // Fallback: отправляем текстом с имитацией
-                        await humanReply({ reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions), sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action) }, response.text);
+                    } else {
+                        // Лимит закончился или текст слишком длинный
+                        let finalText = response.text;
+
+                        if (!canSendVoice) {
+                            finalText += "\n\n🔊 _Лимит бесплатных голосовых исчерпан (3/день). Купи кристаллы в профиле, чтобы я продолжала с тобой говорить голосом_ 💎";
+                        } else if (response.text.length >= 300) {
+                            finalText += "\n\n⚠️ _Текст слишком длинный для голосового (макс. 300 символов)._";
+                        }
+
+                        await humanReply({ reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions), sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action) }, finalText);
                         resetSilenceTimer(userId, bot, chatId);
                     }
                 } else {
-                    // Лимит закончился или текст слишком длинный — отправляем текстом
-                    let finalText = response.text;
-
-                    // Если лимит исчерпан — добавляем уведомление
-                    if (!canSendVoice) {
-                        finalText += "\n\n🔊 _Лимит бесплатных голосовых исчерпан. Пополни баланс кристаллов в профиле, чтобы я продолжала говорить_ 💎";
-                    }
-
-                    await humanReply({ reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions), sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action) }, finalText);
+                    // Обычное текстовое сообщение без голоса
+                    await humanReply({ reply: (text) => bot.telegram.sendMessage(chatId, text, extraOptions), sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action) }, response.text);
                     resetSilenceTimer(userId, bot, chatId);
                 }
             }

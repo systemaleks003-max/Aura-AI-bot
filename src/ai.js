@@ -60,14 +60,7 @@ export async function generateResponse(userId, text) {
     const isPhotoRequest = /скинь фото|покажи фото|отправь фото|свое фото|покажи себя|фото пж/i.test(tLower);
 
     // --- ПЕРЕХВАТЧИК ГОЛОСОВЫХ СООБЩЕНИЙ ---
-    const isVoiceRequest = /отправь голосовое|скажи голосом|голосовое сообщение|хочу услышать твой голос/i.test(tLower);
-    if (isVoiceRequest) {
-        return {
-            text: "💬 Мои голосовые сообщения доступны только в VIP-пакете! Приобрети его в магазине, чтобы услышать мой стон... 😈",
-            photo: null,
-            showBuyButton: true
-        };
-    }
+    const isVoiceRequest = /отправь голосовое|скажи голосом|голосовое сообщение|хочу услышать твой голос|пришли голосовое/i.test(tLower);
     // --- КОНЕЦ ПЕРЕХВАТЧИКА ГОЛОСОВЫХ ---
 
 
@@ -282,6 +275,6 @@ export async function generateResponse(userId, text) {
     const logText = finalAiText ? finalAiText.replace(/\n/g, ' ') : "[Только фото]";
     console.log(`🤖 [BOT ${userId}]: ${logText}`);
 
-    // Возвращаем объект (текст + картинка)
-    return { text: finalAiText || "Что-то пошло не так...", photo: photoUrl, showBuyButton: showBuyButton };
+    // Возвращаем объект (текст + картинка + флаг голосового запроса)
+    return { text: finalAiText || "Что-то пошло не так...", photo: photoUrl, showBuyButton: showBuyButton, isVoiceRequest: isVoiceRequest };
 }
