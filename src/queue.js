@@ -1,7 +1,8 @@
+import { voiceCache } from './cache.js';
 import { Queue, Worker } from 'bullmq';
 import { generateResponse } from './ai.js';
 import { resetSilenceTimer } from './silence.js';
-import { decrementFreeRequest, checkVoiceLimit, deductVoiceLimit } from './database.js';
+import { getUser, decrementFreeRequest, checkVoiceLimit, deductVoiceLimit } from './database.js';
 import fs from 'fs';
 import { generateVoice } from './services/tts.js';
 import { humanReply, stripMarkdown } from './utils/human.js';
@@ -59,7 +60,16 @@ export function startWorker(bot) {
     await pulseTyping();
     typingTimer = setInterval(pulseTyping, 4000);
     try {
-      const response = await generateResponse(userId, text);
+      const user = await getUser(userId);
+        if (!user.has_purchased && user.free_requests_left <= 0) {
+            await bot.telegram.sendMessage(chatId, "У вас закончились бесплатные сообщения. Купите подписку, чтобы продолжить.", {
+                reply_markup: {
+                    inline_keyboard: [[{ text: "💎 Перейти в магазин", callback_data: "trigger_buy" }]]
+                }
+            });
+            return;
+        }
+        const response = await generateResponse(userId, text);
       if (typingTimer) { clearInterval(typingTimer); typingTimer = null; }
             
             if (shouldDecrement) {
@@ -103,13 +113,13 @@ export function startWorker(bot) {
                 }
 
                 const extraOptions = { parse_mode: 'Markdown' };
+        
+        
+        extraOptions.reply_markup = { inline_keyboard: [[{ text: '🔊 Озвучить', callback_data: 'voice_speak' }]] };
 
-                // Если нейросеть сказала, что лимит исчерпан — прикрепляем кнопку
-                if (response.showBuyButton) {
-                    extraOptions.reply_markup = {
-                        inline_keyboard: [[{ text: '⭐️ Перейти в магазин', callback_data: 'trigger_buy' }]]
-                    };
-                }
+        if (response.showBuyButton) {
+            extraOptions.reply_markup.inline_keyboard.push([{ text: '💎 Перейти в магазин', callback_data: 'trigger_buy' }]);
+        }
 
                 // Если пользователь явно попросил голосовое сообщение
                 console.log('[VOICE DEBUG] Запрос голоса:', response.isVoiceRequest, 'Длина текста:', response.text.length);

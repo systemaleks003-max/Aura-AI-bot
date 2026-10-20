@@ -1,3 +1,6 @@
+import { voiceCache } from './cache.js';
+import { generateVoice } from './services/tts.js';
+import fs from 'fs';
 import {
     getUser, createUser, isFreeModeEnabled, toggleFreeMode,
     resetAllFreeRequests, getAdminStats, setUserPrompt, getAllUserIds, clearHistory,
@@ -6,7 +9,8 @@ import {
     getUsersTotal, getUsersPage, grantPackage, updateUserMeta,
     processPlategaPayment, updateLastActive, setStoreOpened, getUsersForRetargeting24h, mark24hPromoSent, getUsersForRetargetingStore, markStorePromoSent,
     createPromocode, activatePromocode, getPaymentHistory,
-    getAllPromocodes, getPromocodeById, togglePromoStatus, togglePromoNewUsersOnly, deletePromocode, updatePromoField, getUsersForBonusNotify, markBonusNotified, getDailyReport, addCrystals, resetVoiceFreeCount
+    getAllPromocodes, getPromocodeById, togglePromoStatus, togglePromoNewUsersOnly, deletePromocode, updatePromoField, getUsersForBonusNotify, markBonusNotified, getDailyReport, addCrystals, resetVoiceFreeCount,
+    checkVoiceLimit, deductVoiceLimit
 } from './database.js';
 import { createPlategaInvoice, checkPlategaInvoice } from './platega.js';
 import { createCryptoInvoice, getCryptoInvoice } from './cryptobot.js';
@@ -938,6 +942,42 @@ async function sendInvoiceHelper(ctx) {
 }
 
 bot.command('buy', sendInvoiceHelper);
+
+bot.action('voice_speak', async (ctx) => {
+    const text = ctx.callbackQuery.message.text;
+    if (!text) {
+        return ctx.reply('Не могу прочитать текст сообщения.');
+    }
+
+    const userId = ctx.from.id;
+    const user = await getUser(userId);
+    
+    const hasVoiceLimit = await checkVoiceLimit(userId);
+    if (!hasVoiceLimit) {
+        await ctx.answerCbQuery();
+        return ctx.reply('У вас закончились бесплатные озвучки. Пополните баланс кристаллов.', {
+            reply_markup: { inline_keyboard: [[{ text: '💎 Перейти в магазин', callback_data: 'trigger_buy' }]] }
+        });
+    }
+
+    await ctx.answerCbQuery('Генерирую...');
+    await ctx.reply('Генерирую голос...');
+    const { generateVoice } = await import('./services/tts.js');
+    const voiceMap = { romance: "matilda", bold: "jessica", dom: "river", hardcore: "laura", flirthot: "lily", flirt: "lily" };
+    const mode = user.roleplay_mode || "flirt";
+    const selectedVoice = voiceMap[mode] || "lily";
+    try {
+        const voiceFile = await generateVoice(text, selectedVoice);
+        await ctx.replyWithVoice({ source: voiceFile });
+        await deductVoiceLimit(userId);
+        const fs = await import('fs');
+        fs.unlinkSync(voiceFile);
+    } catch (e) {
+        console.error(e);
+        await ctx.reply('Ошибка генерации голоса.');
+    }
+});
+
 bot.action('trigger_buy', async (ctx) => {
     await setStoreOpened(ctx.from.id).catch(() => {});
     await ctx.answerCbQuery().catch(() => {});
